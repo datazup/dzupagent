@@ -363,12 +363,43 @@ function occurrences(haystack: string, needle: string): number {
   return count
 }
 
+/**
+ * Immutable, serialized record of one message. Built only from strings and
+ * frozen arrays, so a later call that mutates the live message object (or
+ * returns the same array with mutated members) cannot change it.
+ */
+interface MessageSnapshot {
+  readonly type: string
+  readonly text: string
+  readonly toolCallIds: readonly string[]
+  readonly toolCallId: string | undefined
+  /** Deep serialized role, content, tool calls, tool-call id and name. */
+  readonly fp: string
+}
+
+function snapshot(messages: readonly BaseMessage[]): readonly MessageSnapshot[] {
+  return Object.freeze(messages.map(m => Object.freeze({
+    type: m._getType(),
+    text: contentText(m),
+    toolCallIds: Object.freeze(toolCallsOf(m).map(c => c.id)),
+    toolCallId: m._getType() === 'tool' ? (m as ToolMessage).tool_call_id : undefined,
+    fp: fingerprint(m),
+  })))
+}
+
 // ---------- Scenario -------------------------------------------------------------
 
+/**
+ * Evidence for one call. It holds no live message reference: every `before`
+ * value is captured before `maybeCompress` runs, every `after` value right
+ * after it returns and before the next call.
+ */
 interface Step {
   label: 'round-1' | 'round-2' | 'round-3' | 'idempotence'
-  input: BaseMessage[]
-  output: BaseMessage[]
+  input: readonly MessageSnapshot[]
+  output: readonly MessageSnapshot[]
+  /** The call received exactly the previous call's returned array (or the fixture plus a batch). */
+  inputIsPreviousOutput: boolean
   compressed: boolean
   summary: string | null
   statusBefore: string
@@ -396,31 +427,43 @@ async function runScenario(fixture: Fixture): Promise<Run> {
   const { model, prompts } = makeSummaryModel(fixture.name)
   const steps: Step[] = []
   let transcript = fixture.initial()
+  let previousOutput: BaseMessage[] | null = null
 
   const labels: Step['label'][] = ['round-1', 'round-2', 'round-3', 'idempotence']
   for (const [i, label] of labels.entries()) {
     const round = i + 1
-    if (round === 2 || round === 3) transcript = [...transcript, ...fixture.batch(round)]
+    const batched = round === 2 || round === 3
+    if (batched) transcript = [...transcript, ...fixture.batch(round)]
     plugin.trackPhase('input', CRITICAL_CHARGE)
+    const input = transcript
+    // Before-state, captured before the call can touch any message.
     const statusBefore = plugin.status
     const summaryCallsBefore = prompts.length
-    const input = transcript
+    const inputSnapshot = snapshot(input)
+    const tokensBefore = totalTokens(input)
+    const cacheMarkersBefore = cacheMarkers(input)
+    const inputIsPreviousOutput = previousOutput === null || batched || input === previousOutput
+
     const result = await plugin.maybeCompress(input, model)
+
+    // After-state, captured immediately, before any later call runs.
     steps.push({
       label,
-      input,
-      output: result.messages,
+      input: inputSnapshot,
+      output: snapshot(result.messages),
+      inputIsPreviousOutput,
       compressed: result.compressed,
       summary: result.summary,
       statusBefore,
       statusAfter: plugin.status,
-      tokensBefore: totalTokens(input),
+      tokensBefore,
       tokensAfter: totalTokens(result.messages),
-      cacheMarkersBefore: cacheMarkers(input),
+      cacheMarkersBefore,
       cacheMarkersAfter: cacheMarkers(result.messages),
       summaryCallsBefore,
       summaryCallsAfter: prompts.length,
     })
+    previousOutput = result.messages
     transcript = result.messages
   }
   plugin.cleanup()
@@ -428,8 +471,7 @@ async function runScenario(fixture: Fixture): Promise<Run> {
 }
 
 /** Instruction text of a leading system message before its summary section. */
-function instructionPrefix(m: BaseMessage): string {
-  const content = contentText(m)
+function instructionPrefix(content: string): string {
   const idx = content.indexOf(SUMMARY_PREFIX)
   if (idx < 0) return content
   // `writeSummary` joins instructions and summary with one blank line.
@@ -466,19 +508,18 @@ describe('MC-04a compression economy on fixed transcripts', () => {
       it('item 1: instruction prefix is byte-identical and there is exactly one summary section', () => {
         for (const step of run.steps) {
           const head = step.output[0]!
-          expect(head._getType(), step.label).toBe('system')
-          expect(instructionPrefix(head), step.label).toBe(INSTRUCTIONS)
+          expect(head.type, step.label).toBe('system')
+          expect(instructionPrefix(head.text), step.label).toBe(INSTRUCTIONS)
           for (const constraint of NAMED_CONSTRAINTS) {
-            expect(instructionPrefix(head), `${step.label}: ${constraint}`).toContain(constraint)
+            expect(instructionPrefix(head.text), `${step.label}: ${constraint}`).toContain(constraint)
           }
-          const all = step.output.map(contentText).join('\n')
+          const all = step.output.map(s => s.text).join('\n')
           expect(occurrences(all, SUMMARY_HEADER), step.label).toBe(1)
-          expect(occurrences(contentText(head), SUMMARY_HEADER), step.label).toBe(1)
+          expect(occurrences(head.text, SUMMARY_HEADER), step.label).toBe(1)
           // The section carries the summary this step reports.
-          const content = contentText(head)
-          expect(content.slice(content.indexOf(SUMMARY_PREFIX) + SUMMARY_PREFIX.length), step.label)
+          expect(head.text.slice(head.text.indexOf(SUMMARY_PREFIX) + SUMMARY_PREFIX.length), step.label)
             .toBe(step.summary)
-          expect(step.output.slice(1).some(m => m._getType() === 'system'), step.label).toBe(false)
+          expect(step.output.slice(1).some(s => s.type === 'system'), step.label).toBe(false)
         }
         // Rolling summary integrity: rounds 2 and 3 update the previous summary.
         const rounds = run.steps.filter(s => s.label !== 'idempotence')
@@ -500,28 +541,28 @@ describe('MC-04a compression economy on fixed transcripts', () => {
           const inBody = step.input.slice(1, step.input.length - tail)
           const outBody = step.output.slice(1, step.output.length - tail)
           // Pending tail verbatim and still last.
-          expect(step.output.slice(step.output.length - tail).map(fingerprint), step.label)
-            .toEqual(step.input.slice(step.input.length - tail).map(fingerprint))
+          // Compared as snapshots taken before and right after this call.
+          expect(step.output.slice(step.output.length - tail).map(s => s.fp), step.label)
+            .toEqual(step.input.slice(step.input.length - tail).map(s => s.fp))
           // The configured recent window (and any boundary-aligned extension) verbatim.
           expect(outBody.length, step.label).toBeGreaterThanOrEqual(KEEP)
-          expect(outBody.map(fingerprint), step.label)
-            .toEqual(inBody.slice(inBody.length - outBody.length).map(fingerprint))
+          expect(outBody.map(s => s.fp), step.label)
+            .toEqual(inBody.slice(inBody.length - outBody.length).map(s => s.fp))
           // No orphaned tool result or tool call, and no repair stub.
           const pending = new Set(fixture.pendingIds(stepRound(step.label)))
           const emitted = new Set<string>()
-          for (const [i, m] of step.output.entries()) {
-            for (const call of toolCallsOf(m)) {
-              emitted.add(call.id)
-              if (pending.has(call.id)) continue
+          for (const [i, s] of step.output.entries()) {
+            for (const id of s.toolCallIds) {
+              emitted.add(id)
+              if (pending.has(id)) continue
               const answered = step.output.slice(i + 1).some(
-                later => later._getType() === 'tool' && (later as ToolMessage).tool_call_id === call.id,
+                later => later.type === 'tool' && later.toolCallId === id,
               )
-              expect(answered, `${step.label}: call ${call.id} answered`).toBe(true)
+              expect(answered, `${step.label}: call ${id} answered`).toBe(true)
             }
-            if (m._getType() === 'tool') {
-              const id = (m as ToolMessage).tool_call_id
-              expect(emitted.has(id), `${step.label}: result ${id} has its call`).toBe(true)
-              expect(contentText(m), step.label).not.toContain('[Result unavailable')
+            if (s.type === 'tool') {
+              expect(emitted.has(s.toolCallId!), `${step.label}: result ${s.toolCallId} has its call`).toBe(true)
+              expect(s.text, step.label).not.toContain('[Result unavailable')
             }
           }
           for (const id of pending) {
@@ -549,12 +590,15 @@ describe('MC-04a compression economy on fixed transcripts', () => {
       it('item 4: idempotence call does not grow tokens and changes only the summary section', () => {
         const step = run.steps.find(s => s.label === 'idempotence')!
         const prev = run.steps.find(s => s.label === 'round-3')!
-        expect(step.input).toBe(prev.output)
+        // The call received round 3's returned array, unchanged since it was snapshotted.
+        expect(step.inputIsPreviousOutput).toBe(true)
+        expect(step.input.map(s => s.fp)).toEqual(prev.output.map(s => s.fp))
+        // Before-values were captured before the call; after-values right after it.
         expect(step.tokensAfter).toBeLessThanOrEqual(step.tokensBefore)
         expect(step.output).toHaveLength(step.input.length)
-        expect(step.output[0]!._getType()).toBe('system')
-        expect(instructionPrefix(step.output[0]!)).toBe(instructionPrefix(step.input[0]!))
-        expect(step.output.slice(1).map(fingerprint)).toEqual(step.input.slice(1).map(fingerprint))
+        expect(step.output[0]!.type).toBe('system')
+        expect(instructionPrefix(step.output[0]!.text)).toBe(instructionPrefix(step.input[0]!.text))
+        expect(step.output.slice(1).map(s => s.fp)).toEqual(step.input.slice(1).map(s => s.fp))
       })
 
       it('prints the MC04A_RESULT measurement line', () => {
