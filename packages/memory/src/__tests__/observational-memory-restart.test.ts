@@ -567,6 +567,82 @@ describe('ObservationalMemory restart (MC-03a)', () => {
     })
   })
 
+  describe('c. exactly once: staged-only and in-flight matches', () => {
+    it('c7. a staged-only (never durable) match does not discharge the batch until it is persisted', async () => {
+      const h = await harness()
+      const { source } = ORACLE['M1']!
+      const writer = new StagedWriter({ autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
+      writer.capture({
+        key: 'obs-preloaded-F1',
+        namespace: OBS_NS,
+        scope: SCOPE,
+        value: {
+          text: FACTS['M1'],
+          category: 'fact',
+          confidence: 0.9,
+          source: 'observer',
+          createdAt: 1,
+          modelGenerated: true,
+          promptVersion: 'observation-extraction/v3',
+          sourceMessageCount: 2,
+          evidenceReferences: [{
+            ref: `observation-message:unscoped:${source.id}`,
+            messageId: source.id,
+            role: source.role,
+            contentDigest: sha256(`${source.role}\u0000${source.text}`),
+            excerpt: source.text,
+          }],
+        },
+        confidence: 0.9,
+      })
+      const flaky = new FlakyCandidateStore(h.candidateStore)
+      flaky.failing = () => true
+      let om = h.start({ observerThreshold: 2, stagedWriter: writer, candidateStore: flaky })
+
+      const failing = await om.observe(turn(1)) // matches the staged-only F1; its save fails
+      expect(failing!.skippedDuplicates).toBe(1)
+      await persistBoundary(om)
+      expect(recordIds(await h.ctl.bufferRecord())).toEqual(['u1', 'a1'])
+      expect(await h.durableCandidates()).toEqual([])
+
+      flaky.failing = null
+      await om.observe([]) // the save succeeds: F1 durable, batch discharged
+      await persistBoundary(om)
+      expect(await h.ctl.bufferRecord()).toBeNull()
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1'])
+
+      om = h.start({ observerThreshold: 2 }) // restart with a fresh writer
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1'])
+    })
+
+    it('c8. only the in-flight snapshot sees a record that becomes durable while the dedup read is held', async () => {
+      const h = await harness()
+      const om = h.start({ observerThreshold: 2 })
+      const first = await om.observe(turn(1))
+      const f1Key = recordsWithFact(first!.staged, 'M1')[0]!.key
+
+      const blockedWrite = h.ctl.on('put', OBS_NS, 'block')
+      const confirming = om.confirmObservation(f1Key)
+      await blockedWrite.entered.promise // F1 in flight
+      const heldRead = h.ctl.on('search', OBS_NS, 'delay-result', 1)
+      const replay = om.observe(turn(1))
+      await heldRead.entered.promise // snapshot taken; durable read result (empty) held
+
+      h.ctl.off(blockedWrite)
+      expect(await confirming).toBe(true) // flush, receipt and candidate removal complete
+      expect(inFlight(om).size).toBe(0)
+      expect(await h.durableCandidates()).toEqual([])
+
+      h.ctl.off(heldRead)
+      const result = await replay
+      expect(result!.skippedDuplicates).toBe(1)
+      expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
+      await h.confirmAll(om)
+      assertFactsExactlyOnce(await h.stored(), ['M1'])
+    })
+  })
+
   describe('c. exactly once: flush failures', () => {
     it('c5. a receipt-read failure during a flush keeps the detached record visible', async () => {
       const h = await harness()

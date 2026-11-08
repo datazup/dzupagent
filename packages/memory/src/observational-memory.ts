@@ -1187,6 +1187,19 @@ export class ObservationalMemory {
         }
       }
       stagedTexts.push(...candidateTexts)
+      // A staged record that is neither a durable candidate nor a durable
+      // observation cannot discharge a batch by matching as a duplicate:
+      // track it as an unresolved obligation so the run must persist it.
+      const durableCandidateKeys = new Set(
+        candidates.status === 'loaded' ? candidates.records.map(record => record.key) : [],
+      )
+      const durableObservationKeys = new Set(durable.map(item => item.key))
+      for (const record of this.stagedWriter?.getAll() ?? []) {
+        if (record.stage === 'rejected') continue
+        if (durableCandidateKeys.has(record.key) || durableObservationKeys.has(record.key)) continue
+        if (this.inFlightFlushes.has(record.key) || this.candidateObligations.has(record.key)) continue
+        this.candidateObligations.set(record.key, record)
+      }
       for (const item of durable) durableKeys.add(item.key)
       existingTexts = durable
         .map(item => {
