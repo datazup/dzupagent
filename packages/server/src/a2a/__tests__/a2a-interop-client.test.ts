@@ -313,6 +313,12 @@ describe('A2A v0.3.0 message/send with store access', () => {
   function build(extra: Partial<Parameters<typeof createA2ARoutes>[0]> = {}) {
     const store = new InMemoryA2ATaskStore()
     const app = new Hono()
+    app.use('*', async (c, next) => {
+      const owner = c.req.header('x-test-owner')
+      const tenant = c.req.header('x-test-tenant')
+      if (owner && tenant) c.set('apiKey' as never, { id: owner, tenantId: tenant } as never)
+      await next()
+    })
     const agentCard = buildAgentCard({
       name: 'interop-server',
       description: 'Interop fixture',
@@ -323,8 +329,8 @@ describe('A2A v0.3.0 message/send with store access', () => {
     app.route('', createA2ARoutes({ agentCard, taskStore: store, ...extra }))
     const post = async (body: unknown) =>
       (await app.request('/a2a', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).text()
-    const postRaw = async (text: string) =>
-      (await app.request('/a2a', { method: 'POST', headers: { 'content-type': 'application/json' }, body: text })).text()
+    const postRaw = async (text: string, headers: Record<string, string> = {}) =>
+      (await app.request('/a2a', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: text })).text()
     return { app, store, post, postRaw }
   }
 
@@ -349,7 +355,7 @@ describe('A2A v0.3.0 message/send with store access', () => {
     })
   })
 
-  it('refuses a missing discriminator and malformed metadata before any task is stored or executed', async () => {
+  it('refuses a missing discriminator and malformed optional fields before any task is stored or executed', async () => {
     const seen: string[] = []
     const { store, post } = build({ onTaskSubmitted: async (task) => { seen.push(task.id) } })
     const { kind: _kind, ...noKind } = v030Message('x', 'm-k')
@@ -361,6 +367,10 @@ describe('A2A v0.3.0 message/send with store access', () => {
       { message: ok, metadata: null },
       { message: ok, metadata: { agentName: 42 } },
       { message: ok, metadata: { agentName: '' } },
+      { message: { ...ok, metadata: [] } },
+      { message: { ...ok, extensions: 42 } },
+      { message: { ...ok, referenceTaskIds: [false] } },
+      { message: { ...ok, parts: [{ kind: 'text', text: 'x', metadata: null }] } },
     ]) {
       const reply = JSON.parse(await post({ jsonrpc: '2.0', id: 1, method: 'message/send', params })) as { error?: { code: number } }
       expect(reply.error?.code).toBe(JSONRPC_INVALID_PARAMS)
@@ -369,22 +379,44 @@ describe('A2A v0.3.0 message/send with store access', () => {
     expect(seen).toEqual([])
   })
 
-  it('keeps __proto__ and constructor keys in data and metadata as plain data and leaves every prototype alone', async () => {
+  it('keeps __proto__ and constructor keys in data and metadata as plain own data, leaves every prototype alone, and keeps scope isolation', async () => {
     const { store, postRaw } = build()
     const poison = '{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}'
-    const text = await postRaw(
+    const body = (taskId?: string) =>
       '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","messageId":"m-p","role":"user",'
+        + (taskId === undefined ? '' : `"taskId":"${taskId}",`)
         + `"parts":[{"kind":"data","data":${poison}}]},"metadata":{"agentName":"echo-agent","extra":${poison}}}}`
-    )
-    const reply = JSON.parse(text) as { result?: { id: string }; error?: unknown }
+    const alice = { 'x-test-owner': 'alice', 'x-test-tenant': 'tenant-1' }
+    const reply = JSON.parse(await postRaw(body(), alice)) as {
+      result?: { id: string; metadata?: Record<string, unknown>; history: Array<{ parts: Array<{ data?: Record<string, unknown> }> }> }
+      error?: unknown
+    }
     expect(reply.error).toBeUndefined()
+    const owns = (value: unknown, key: string) => Object.hasOwn(value as object, key)
     expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
-    expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
-    expect(Object.hasOwn(Object.getPrototypeOf(Object.prototype) ?? {}, 'polluted')).toBe(false)
+    expect(owns(Object.prototype, 'polluted')).toBe(false)
+    // Returned: both keys survive as own data of plain objects.
+    const returned = reply.result?.history[0]?.parts[0]?.data
+    expect(owns(returned, '__proto__')).toBe(true)
+    expect(owns(returned, 'constructor')).toBe(true)
+    expect(Object.getPrototypeOf(returned)).toBe(Object.prototype)
+    expect((Object.getOwnPropertyDescriptor(returned, '__proto__')?.value as Record<string, unknown>)['polluted']).toBe(true)
+    const extra = reply.result?.metadata?.['extra']
+    expect(owns(extra, '__proto__')).toBe(true)
+    expect(Object.getPrototypeOf(extra)).toBe(Object.prototype)
+    // Stored: the same own keys, the same prototypes.
     const stored = await store.get(reply.result?.id ?? '')
+    const storedData = stored?.messages[0]?.parts[0]?.data
+    expect(owns(storedData, '__proto__')).toBe(true)
+    expect(Object.getPrototypeOf(storedData)).toBe(Object.prototype)
+    expect(owns(stored?.metadata?.['extra'], 'constructor')).toBe(true)
     expect(stored?.agentName).toBe('echo-agent')
-    expect(stored?.messages).toHaveLength(1)
-    expect(Object.getPrototypeOf(stored?.messages[0]?.parts[0]?.data)).toBe(Object.prototype)
+    // Another owner or tenant cannot continue the task with the same payload.
+    for (const headers of [{ 'x-test-owner': 'bob', 'x-test-tenant': 'tenant-1' }, { 'x-test-owner': 'alice', 'x-test-tenant': 'tenant-2' }]) {
+      const denied = JSON.parse(await postRaw(body(reply.result?.id), headers)) as { error?: { code: number } }
+      expect(denied.error?.code).toBe(A2A_TASK_NOT_FOUND)
+    }
+    expect((await store.get(reply.result?.id ?? ''))?.messages).toHaveLength(1)
   })
 
   it('hands a new task to the host callback exactly as tasks/send does', async () => {

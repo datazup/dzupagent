@@ -38,12 +38,20 @@ export type ParsedMessageV030 =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+const isStringArray = (value: unknown): boolean =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
 /** Validates a v0.3.0 message from the wire and maps it to the internal message. */
 export function parseMessageV030(value: unknown): ParsedMessageV030 {
   const invalid = (detail: string): ParsedMessageV030 => ({ ok: false, reason: 'invalid', detail })
   if (!isRecord(value)) return invalid('params.message must be an object')
   if (value['kind'] !== 'message') return invalid('message.kind must be "message"')
   if (typeof value['messageId'] !== 'string' || value['messageId'].length === 0) return invalid('message.messageId is required')
+  if (value['metadata'] !== undefined && !isRecord(value['metadata'])) return invalid('message.metadata must be an object')
+  if (value['extensions'] !== undefined && !isStringArray(value['extensions'])) return invalid('message.extensions must be an array of strings')
+  if (value['referenceTaskIds'] !== undefined && !isStringArray(value['referenceTaskIds'])) {
+    return invalid('message.referenceTaskIds must be an array of strings')
+  }
   const role = value['role']
   if (role !== 'user' && role !== 'agent') return invalid('message.role must be "user" or "agent"')
   const parts = value['parts']
@@ -51,6 +59,7 @@ export function parseMessageV030(value: unknown): ParsedMessageV030 {
   const mapped: A2AMessagePart[] = []
   for (const part of parts) {
     if (!isRecord(part)) return invalid('each part must be an object')
+    if (part['metadata'] !== undefined && !isRecord(part['metadata'])) return invalid('part.metadata must be an object')
     if (part['kind'] === 'file') return { ok: false, reason: 'content', detail: 'file parts are not supported' }
     if (part['kind'] === 'text') {
       if (typeof part['text'] !== 'string') return invalid('a text part needs a string text')

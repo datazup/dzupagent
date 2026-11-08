@@ -30,6 +30,8 @@ describe('A2A v0.3.0 mappers', () => {
     const bad = [
       null, [], { ...base, kind: 'task' }, { messageId: 'm', role: 'user', parts: [{ kind: 'text', text: 'a' }] }, { ...base, messageId: '' }, { ...base, role: 'x' }, { ...base, parts: {} },
       { ...base, parts: [null] }, { ...base, parts: [{ kind: 'data', data: [] }] }, { ...base, taskId: 3 }, { ...base, contextId: '' },
+      { ...base, metadata: [] }, { ...base, extensions: 42 }, { ...base, extensions: [1] }, { ...base, referenceTaskIds: [false] },
+      { ...base, parts: [{ kind: 'text', text: 'a', metadata: null }] },
     ]
     for (const value of bad) expect(parseMessageV030(value)).toMatchObject({ ok: false, reason: 'invalid' })
     expect(parseMessageV030({ ...base, parts: [{ kind: 'file', file: {} }] })).toMatchObject({ ok: false, reason: 'content' })
