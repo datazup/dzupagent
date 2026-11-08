@@ -190,6 +190,39 @@ const store = await createStore({
 const store = await createStore({ type: 'memory' })
 ```
 
+### Record expiry (opt-in)
+
+Records never expire unless you set `ttlMs`. With `ttlMs`, a record expires `ttlMs` milliseconds after its last
+write; reads do not extend it. Expired records are never returned and are physically deleted.
+
+```typescript
+const store = await createStore({
+  type: 'postgres',
+  connectionString: process.env.DATABASE_URL,
+  ttlMs: 30 * 24 * 60 * 60_000, // 30 days
+  ttlSweepIntervalMs: 15 * 60_000, // optional, default 60 minutes
+})
+// ...
+await closeMemoryStore(store) // stops the expiry sweeper and closes the pool
+```
+
+- **Memory store:** any positive finite `ttlMs`; expired records are deleted on the next read or write. `maxRecords`
+  (least-recently-written eviction) is available on the memory store only.
+- **Postgres store:** `ttlMs` must be at least `60000` (one minute, the library's unit); a smaller value is refused.
+  It is passed to `PostgresStore` as `ttl: { defaultTtl: ttlMs / 60000, refreshOnRead: false, sweepIntervalMinutes }`.
+  Reads and searches skip expired rows, and a background sweeper deletes them every `ttlSweepIntervalMs` (at least
+  `60000`, default 60 minutes; Postgres only, and only together with `ttlMs`). `maxRecords` is refused for Postgres.
+  Without `ttlMs` the store is created exactly as before: no default expiry and no sweeper.
+- **No migration of our own.** The library's `setup()` migrations already create the `store.expires_at` column and
+  its index; `createStore` runs `setup()`.
+- **Existing data.** A row that is not rewritten while the option is on, and whose `expires_at` is `NULL`, is kept.
+  Rows that `createStore` wrote before this option existed have `expires_at = NULL`.
+  - **Rewrites expire.** Writing an existing key while the option is on gives that row an expiry, like any new row.
+  - **The sweeper is schema-wide.** It deletes every expired row in the store's schema, including rows another
+    TTL-configured client wrote. The existing-data guarantee therefore holds for the whole schema only when no other
+    client writes TTL rows to the same schema.
+- **Shutdown.** `closeMemoryStore(store)` calls the store's `stop()`, which stops the sweeper before closing the pool.
+
 ## Peer Dependencies
 
 | Package | Version |
