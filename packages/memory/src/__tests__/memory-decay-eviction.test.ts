@@ -94,13 +94,16 @@ function makePrunerStore(
   return {
     data,
     deleteCalls,
-    search: vi.fn(async (): Promise<ConsolidationStoreItem[]> => {
+    // Fixture (MC-05b): a real store returns each item's own namespace; this
+    // flat mock holds every record at the namespace it is queried with.
+    search: vi.fn(async (ns: string[] = []): Promise<ConsolidationStoreItem[]> => {
       return itemsWithMeta
         .filter((r) => data.has(r.key))
         .map((r) => ({
           key: r.key,
           value: data.get(r.key)!,
           createdAt: r.createdAt,
+          namespace: [...ns],
         }));
     }),
     put: vi.fn(

@@ -78,7 +78,8 @@ function createMockBaseStore(caps?: Partial<MemoryStoreCapabilities>) {
       ) => {
         return data
           .filter((d) => arrEq(d.namespace, namespace))
-          .map((d) => ({ key: d.key, value: d.value }));
+          // Fixture (MC-05b): `namespace` as a real store returns it.
+          .map((d) => ({ key: d.key, value: d.value, namespace: d.namespace }));
       }
     ),
     delete: vi.fn(async (_namespace: string[], _key: string) => {
@@ -120,6 +121,9 @@ const NAMESPACES: NamespaceConfig[] = [
   },
   { name: "notes", scopeKeys: ["userId", "notes"], searchable: true },
 ];
+
+/** Fixture (MC-05b): the stored tuple for `lessons` at { tenantId: "t1", lessons: "lessons" }. */
+const LESSONS_T1_TUPLE = ["lessons", "t1", "lessons"];
 
 // ─── 1. extractDecayMeta ─────────────────────────────────────────────────────
 
@@ -428,6 +432,8 @@ describe("searchMemory", () => {
     searchable: true,
   };
   const scope = { tenantId: "t1", lessons: "lessons" };
+  /** Fixture (MC-05b): the stored tuple a real store returns as `namespace`. */
+  const namespace = ["lessons", "t1", "lessons"];
 
   it("returns [] when BaseStore.search throws", async () => {
     const store = {
@@ -449,9 +455,9 @@ describe("searchMemory", () => {
   it("returns keyword results sorted by inverse rank when no semanticStore", async () => {
     const store = createMockBaseStore();
     store.search.mockResolvedValueOnce([
-      { key: "a", value: { text: "alpha" } },
-      { key: "b", value: { text: "beta" } },
-      { key: "c", value: { text: "gamma" } },
+      { key: "a", value: { text: "alpha" }, namespace },
+      { key: "b", value: { text: "beta" }, namespace },
+      { key: "c", value: { text: "gamma" }, namespace },
     ]);
     const result = await searchMemory(ns, scope, "query", 5, undefined, {
       store: store as unknown as BaseStore,
@@ -469,10 +475,10 @@ describe("searchMemory", () => {
   it("trims keyword results to the requested limit", async () => {
     const store = createMockBaseStore();
     store.search.mockResolvedValueOnce([
-      { key: "a", value: { text: "a" } },
-      { key: "b", value: { text: "b" } },
-      { key: "c", value: { text: "c" } },
-      { key: "d", value: { text: "d" } },
+      { key: "a", value: { text: "a" }, namespace },
+      { key: "b", value: { text: "b" }, namespace },
+      { key: "c", value: { text: "c" }, namespace },
+      { key: "d", value: { text: "d" }, namespace },
     ]);
     const result = await searchMemory(ns, scope, "query", 2, undefined, {
       store: store as unknown as BaseStore,
@@ -547,8 +553,8 @@ describe("searchMemory", () => {
     };
     // Store returns old record first, fresh second
     store.search.mockResolvedValueOnce([
-      { key: "old", value: { text: "stale", _decay: oldDecay } },
-      { key: "fresh", value: { text: "fresh", _decay: freshDecay } },
+      { key: "old", value: { text: "stale", _decay: oldDecay }, namespace },
+      { key: "fresh", value: { text: "fresh", _decay: freshDecay }, namespace },
     ]);
 
     const result = await searchMemory(ns, scope, "query", 5, undefined, {
@@ -570,7 +576,7 @@ describe("searchMemory", () => {
   it("fires reference tracking fire-and-forget when readContext provided", async () => {
     const store = createMockBaseStore();
     store.search.mockResolvedValueOnce([
-      { key: "r1", value: { text: "result" } },
+      { key: "r1", value: { text: "result" }, namespace },
     ]);
     const trackReference = vi.fn(async () => undefined);
     // Partial double: searchMemory only ever calls `trackReference`.
@@ -827,7 +833,8 @@ describe("MemoryService namespace isolation", () => {
         .filter(
           (d) => JSON.stringify(d.namespace) === JSON.stringify(namespace)
         )
-        .map((d) => ({ key: d.key, value: d.value }));
+        // Fixture (MC-05b): `namespace` as a real store returns it.
+        .map((d) => ({ key: d.key, value: d.value, namespace: d.namespace }));
     });
 
     semanticStore.search.mockResolvedValueOnce([]);
@@ -895,11 +902,12 @@ describe("MemoryService concurrent operations", () => {
 
     // Set up distinct results for two separate calls
     store.search
+      // Fixture (MC-05b): `namespace` as a real store returns it.
       .mockResolvedValueOnce([
-        { key: "r1", value: { text: "result for query1" } },
+        { key: "r1", value: { text: "result for query1" }, namespace: LESSONS_T1_TUPLE },
       ])
       .mockResolvedValueOnce([
-        { key: "r2", value: { text: "result for query2" } },
+        { key: "r2", value: { text: "result for query2" }, namespace: LESSONS_T1_TUPLE },
       ]);
     semanticStore.search.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
@@ -1107,9 +1115,10 @@ describe("MemoryService search top-K edge cases", () => {
       semanticStore,
     });
 
+    // Fixture (MC-05b): `namespace` as a real store returns it.
     store.search.mockResolvedValueOnce([
-      { key: "a", value: { text: "a" } },
-      { key: "b", value: { text: "b" } },
+      { key: "a", value: { text: "a" }, namespace: LESSONS_T1_TUPLE },
+      { key: "b", value: { text: "b" }, namespace: LESSONS_T1_TUPLE },
     ]);
     semanticStore.search.mockResolvedValueOnce([]);
 
@@ -1130,7 +1139,7 @@ describe("MemoryService search top-K edge cases", () => {
       semanticStore,
     });
 
-    store.search.mockResolvedValueOnce([{ key: "a", value: { text: "a" } }]);
+    store.search.mockResolvedValueOnce([{ key: "a", value: { text: "a" }, namespace: LESSONS_T1_TUPLE }]);
     semanticStore.search.mockResolvedValueOnce([]);
 
     const results = await svc.search(
@@ -1151,8 +1160,9 @@ describe("MemoryService search top-K edge cases", () => {
     });
 
     store.search.mockResolvedValueOnce([
-      { key: "best", value: { text: "best result" } },
-      { key: "second", value: { text: "second result" } },
+      // Fixture (MC-05b): `namespace` as a real store returns it.
+      { key: "best", value: { text: "best result" }, namespace: LESSONS_T1_TUPLE },
+      { key: "second", value: { text: "second result" }, namespace: LESSONS_T1_TUPLE },
     ]);
     semanticStore.search.mockResolvedValueOnce([]);
 
@@ -1376,7 +1386,8 @@ describe("MemoryService large payload", () => {
     );
 
     store.search.mockResolvedValueOnce([
-      { key: "large-key", value: { text: largeText } },
+      // Fixture (MC-05b): `namespace` as a real store returns it.
+      { key: "large-key", value: { text: largeText }, namespace: LESSONS_T1_TUPLE },
     ]);
     semanticStore.search.mockResolvedValueOnce([]);
 

@@ -223,6 +223,45 @@ await closeMemoryStore(store) // stops the expiry sweeper and closes the pool
     client writes TTL rows to the same schema.
 - **Shutdown.** `closeMemoryStore(store)` calls the store's `stop()`, which stops the sweeper before closing the pool.
 
+### Namespace isolation on prefix reads and deletes
+
+**The hazard.** `PostgresStore.search(prefix)` without a vector index is a string `LIKE '<prefix joined by ":">%'`, not
+a segment match. The leak needs one shape: the **last** segment of the queried prefix is a string prefix of the same
+segment of a stored, equal-or-longer namespace. `['memories', 't1']` matches `['memories', 't10']`, and
+`['memories', 'acme', 'u1']` matches `['memories', 'acme', 'u10']`. A difference in an earlier segment does not leak:
+`['memories', 't1', 'u1']` does not match `['memories', 't10', 'u1']`. The in-memory store matches segment by segment.
+
+**The guard.** `namespaceEquals(item, tuple)` (exact) and `namespaceUnder(item, prefix)` (the prefix or a descendant),
+both exported, compare each returned item's own `namespace` segment by segment:
+
+- `MemoryService.get`, `getKeyed` (`getKeyedMemoryRecords`) and the keyword channel of `search`/`searchWithStatus` keep
+  only items stored at exactly the service's tuple.
+- `MemoryPruner.prune` and `consolidateNamespace` consider only items under the scan prefix, and delete each at its own
+  `namespace` plus `key`.
+- `TenantScopedStore.search` drops items outside its tenant (and project) prefix.
+- **Fail closed:** an item returned without a `namespace` array matches neither predicate. Reads drop it, and
+  maintenance never deletes it. A custom store must return each item's `namespace`, as `BaseStore.search` does.
+
+**Two intentional compatibility changes, on every store:**
+
+- **Descendants are no longer read.** A namespace below a `MemoryService` tuple (possible when two namespace configs
+  share a name and one has more scope keys) is no longer returned by `get`, `getKeyed` or the keyword channel of
+  `search`. The in-memory store and Postgres both returned it before.
+- **Maintenance deletes the real row.** A descendant item found by the pruner or `consolidateNamespace` used to be
+  deleted at the scan prefix, which missed it or deleted an unrelated same-key row there. It is now deleted at its own
+  namespace. Record identity is namespace plus key.
+
+**Limits:**
+
+- **Vector channel.** The exclusion covers the store reads and the keyword channel only. The `semanticStore` channel of
+  `search` filters by namespace name and the querying config's scope keys, so a descendant record written by a config
+  with more scope keys can still be returned as a vector-only hit through fusion. Exact-scope vector filtering is
+  deferred.
+- **No `:` in labels.** Postgres stores the labels joined by `:` and rebuilds a returned namespace with `split(":")`.
+  `['memories', 't1', 'u1']` and `['memories', 't1:u1']` share one stored path and are both returned as
+  `['memories', 't1', 'u1']`, so no check on the returned namespace can tell them apart. The isolation holds only for
+  labels without `:`. On the Postgres store, do not put `:` in tenant, scope or namespace values.
+
 ## Peer Dependencies
 
 | Package | Version |

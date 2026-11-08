@@ -49,6 +49,12 @@ export interface ConsolidationStoreItem {
   key: string
   value: Record<string, unknown>
   createdAt?: Date | string | number | undefined
+  /**
+   * The item's own stored namespace, as `BaseStore.search` returns it.
+   * Prefix-scanning maintenance (`MemoryPruner`) deletes at this namespace and
+   * ignores items that lack it (fail closed).
+   */
+  namespace?: string[] | undefined
 }
 
 /**

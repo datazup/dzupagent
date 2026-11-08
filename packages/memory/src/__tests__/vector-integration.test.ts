@@ -33,7 +33,8 @@ function createMockBaseStore() {
     search: vi.fn(async (namespace: string[], _opts?: { query?: string; limit?: number }) => {
       return data
         .filter(d => arrEq(d.namespace, namespace))
-        .map(d => ({ key: d.key, value: d.value }))
+        // Fixture (MC-05b): `namespace` as a real store returns it.
+        .map(d => ({ key: d.key, value: d.value, namespace: d.namespace }))
     }),
     _data: data,
   }
@@ -60,6 +61,9 @@ function createMockSemanticStore(): SemanticStoreAdapter & {
 }
 
 // ─── Namespace configs ──────────────────────────────────────────────────────
+
+/** Fixture (MC-05b): the stored tuple for `lessons` at scope { tenantId: 't1', lessons: 'lessons' }. */
+const LESSONS_TUPLE = ['lessons', 't1', 'lessons']
 
 const NAMESPACES: NamespaceConfig[] = [
   { name: 'lessons', scopeKeys: ['tenantId', 'lessons'], searchable: true },
@@ -128,9 +132,10 @@ describe('MemoryService with SemanticStore (VEC-009)', () => {
 
   it('search() fuses keyword + vector results via RRF', async () => {
     // Pre-populate the keyword store with results
+    // Fixture (MC-05b): `namespace` as a real store returns it.
     store.search.mockResolvedValueOnce([
-      { key: 'a', value: { text: 'Result A from keyword' } },
-      { key: 'b', value: { text: 'Result B from keyword' } },
+      { key: 'a', value: { text: 'Result A from keyword' }, namespace: LESSONS_TUPLE },
+      { key: 'b', value: { text: 'Result B from keyword' }, namespace: LESSONS_TUPLE },
     ])
 
     // SemanticStore returns overlapping + new results
@@ -149,7 +154,7 @@ describe('MemoryService with SemanticStore (VEC-009)', () => {
 
   it('search() falls back to keyword-only when vector search fails', async () => {
     store.search.mockResolvedValueOnce([
-      { key: 'a', value: { text: 'Result A' } },
+      { key: 'a', value: { text: 'Result A' }, namespace: LESSONS_TUPLE },
     ])
     semanticStore.search.mockRejectedValueOnce(new Error('Vector DB down'))
 
@@ -167,7 +172,7 @@ describe('MemoryService without SemanticStore (backward compat)', () => {
     const svc = new MemoryService(store as unknown as BaseStore, NAMESPACES, { rejectUnsafe: false })
 
     store.search.mockResolvedValueOnce([
-      { key: 'x', value: { text: 'Result X' } },
+      { key: 'x', value: { text: 'Result X' }, namespace: LESSONS_TUPLE },
     ])
 
     const results = await svc.search('lessons', { tenantId: 't1', lessons: 'lessons' }, 'query', 5)
