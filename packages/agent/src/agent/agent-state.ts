@@ -53,15 +53,6 @@ function messageTypeToRole(msg: BaseMessage): SerializedMessage['role'] {
   }
 }
 
-/** A block with exactly the keys `type` (`'text'`) and `text` (a string). */
-function isPlainTextBlock(block: unknown): block is { type: 'text'; text: string } {
-  if (!block || typeof block !== 'object' || Array.isArray(block)) return false
-  const b = block as Record<string, unknown>
-  return Object.keys(b).sort().join('|') === 'text|type'
-    && b['type'] === 'text'
-    && typeof b['text'] === 'string'
-}
-
 /**
  * Extract string content from a message (handles string and array content).
  *
@@ -71,6 +62,14 @@ function isPlainTextBlock(block: unknown): block is { type: 'text'; text: string
  * single-string system content. Other array content keeps the JSON form.
  */
 function extractContent(content: BaseMessage['content']): string {
+  /** A block with exactly the keys `type` (`'text'`) and `text` (a string). */
+  const isPlainTextBlock = (block: unknown): block is { type: 'text'; text: string } => {
+    if (!block || typeof block !== 'object' || Array.isArray(block)) return false
+    const b = block as Record<string, unknown>
+    return Object.keys(b).sort().join('|') === 'text|type'
+      && b['type'] === 'text'
+      && typeof b['text'] === 'string'
+  }
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     if (content.every(isPlainTextBlock)) {

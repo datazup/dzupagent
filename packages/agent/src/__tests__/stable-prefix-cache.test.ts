@@ -14,12 +14,11 @@
  * Provider-free. The installed `@langchain/anthropic` converter
  * (`convertPromptToAnthropic`) runs locally.
  *
- * Placement: in this package `@dzupagent/context` resolves to a prebuilt
- * `dist`, and the package boundary test forbids relative imports into
- * `packages/context`. The system breakpoint is therefore placed by the
- * test-local {@link markSystemBlock0}, the item-1 rule verbatim; the context
- * test `prompt-cache-stable-prefix.test.ts` pins that same rule to
- * `applyCacheBreakpoints` ("contract" case), so the two halves compose.
+ * Placement is production `applyCacheBreakpoints` from `@dzupagent/context`.
+ * MC-04b gates run this package with the isolated candidate resolution
+ * (`--config node_modules/.mc04b-candidate/vitest.config.mts`, aliasing
+ * `@dzupagent/context` to this worktree's `packages/context/src`); under the
+ * default resolution (a prebuilt `dist` of the base) the placement cases fail.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -35,6 +34,7 @@ import {
   CharEstimateCounter,
   TiktokenCounter,
   TokenLifecycleManager,
+  applyCacheBreakpoints,
   createTokenBudget,
   formatSummaryContext,
 } from '@dzupagent/context'
@@ -120,38 +120,9 @@ function convert(messages: BaseMessage[]) {
   }
 }
 
-/**
- * MC-04b item 1 system-breakpoint rule (test-local copy; pinned to
- * `applyCacheBreakpoints` by the context "contract" case): a leading system
- * message whose content is two or more text blocks gets `cache_control` on
- * block 0 only; a string becomes one marked block; any other array gets it on
- * its last block. Only the system message is marked.
- */
-function markSystemBlock0(messages: BaseMessage[]): BaseMessage[] {
-  const marker = { type: 'ephemeral' }
-  return messages.map((m, index) => {
-    if (index !== 0 || m._getType() !== 'system') return m
-    const content = m.content
-    if (typeof content === 'string') {
-      return new SystemMessage({ content: content ? [{ type: 'text', text: content, cache_control: marker }] : '' })
-    }
-    const blocks = (content as Array<Record<string, unknown>>).map((b) => ({ ...b }))
-    const textOnly = blocks.length >= 2 && blocks.every((b) => b['type'] === 'text' && typeof b['text'] === 'string')
-    if (textOnly) {
-      blocks.forEach((b, j) => {
-        if (j === 0) b['cache_control'] = marker
-        else delete b['cache_control']
-      })
-    } else if (blocks.length > 0) {
-      blocks[blocks.length - 1]!['cache_control'] = marker
-    }
-    return new SystemMessage({ content: blocks as never })
-  })
-}
-
 /** Serialized payload bytes from the start of `system` through the system breakpoint. */
 function prefixThroughBreakpoint(system: SystemMessage, rest: BaseMessage[] = [new HumanMessage('turn')]) {
-  const payload = convert(markSystemBlock0([system, ...rest]))
+  const payload = convert(applyCacheBreakpoints([system, ...rest]))
   const sys = payload.system as Block[]
   const index = sys.findIndex((b) => 'cache_control' in b)
   return { index, bytes: JSON.stringify(sys.slice(0, index + 1)) }
@@ -193,7 +164,7 @@ describe('MC-04b case a: prefix stability through the system breakpoint', () => 
   })
 
   it('a re-marked, compressed system message keeps the same prefix (marks applied before compression)', () => {
-    const marked = markSystemBlock0([systemOf(INSTRUCTIONS, 'memo', 'old')])[0] as SystemMessage
+    const marked = applyCacheBreakpoints([systemOf(INSTRUCTIONS, 'memo', 'old')])[0] as SystemMessage
     const after = compress(marked, 'new')
     expect(prefixThroughBreakpoint(after)).toEqual(prefixThroughBreakpoint(systemOf(INSTRUCTIONS, null, null)))
     expect(joined(after.content)).toBe(legacyWrite(legacyBuild(INSTRUCTIONS, 'memo', 'old'), formatSummaryContext('new')))
@@ -271,30 +242,46 @@ describe('MC-04b case b: payload shape and envelope codec', () => {
     ])
   })
 
-  it('the converted payload has one system block array, cache_control on block 0 (the instructions), only type/text/cache_control keys', () => {
-    // The whole-payload budget of at most 4 breakpoints is asserted on
-    // `applyCacheBreakpoints` itself in the context test (case b, both strategies).
-    const payload = convert(markSystemBlock0(prepared))
-    const system = payload.system as Block[]
-    expect(Array.isArray(system)).toBe(true)
-    expect(system).toHaveLength(3)
-    expect(system[0]!.text).toBe(INSTRUCTIONS)
-    expect(system[0]!['cache_control']).toEqual({ type: 'ephemeral' })
-    expect(system.slice(1).every((b) => !('cache_control' in b))).toBe(true)
-    for (const block of system) {
-      expect(Object.keys(block).every((k) => ['type', 'text', 'cache_control'].includes(k))).toBe(true)
+  it('the converted payload has one system block array, cache_control on block 0 (the instructions), at most 4 breakpoints', () => {
+    for (const cacheStrategy of ['content-addressed', 'positional'] as const) {
+      const payload = convert(applyCacheBreakpoints(prepared, { cacheStrategy }))
+      const system = payload.system as Block[]
+      expect(Array.isArray(system), cacheStrategy).toBe(true)
+      expect(system).toHaveLength(3)
+      expect(system[0]!.text).toBe(INSTRUCTIONS)
+      expect(system[0]!['cache_control']).toEqual({ type: 'ephemeral' })
+      expect(system.slice(1).every((b) => !('cache_control' in b))).toBe(true)
+      for (const block of system) {
+        expect(Object.keys(block).every((k) => ['type', 'text', 'cache_control'].includes(k))).toBe(true)
+      }
+      const total = JSON.stringify(payload).split('"cache_control"').length - 1
+      expect(total, cacheStrategy).toBeLessThanOrEqual(4)
     }
-    const total = JSON.stringify(payload).split('"cache_control"').length - 1
-    expect(total).toBe(1)
+  })
+
+  it('empty-block regressions: leading and interior empty blocks are omitted and never carry the breakpoint', () => {
+    const s = formatSummaryContext('s')
+    const leading = writeSummary(blocks('', 'I'), s)
+    expect(leading).toEqual(blocks('I', `\n\n${P}s`))
+    const interior = writeSummary(blocks('I', '', '\n\nmemo'), s)
+    expect(interior).toEqual(blocks('I', '\n\nmemo', `\n\n${P}s`))
+    expect(writeSummary(blocks('', 'I'), '')).toEqual(blocks('I'))
+    for (const [label, input, out] of [['leading', ['', 'I'], leading], ['interior', ['I', '', '\n\nmemo'], interior]] as const) {
+      expect(joined(out), label).toBe(legacyWrite(input.join(''), s))
+      const system = convert(applyCacheBreakpoints([new SystemMessage({ content: out }), new HumanMessage('x')]))
+        .system as Block[]
+      expect(system.every((b) => b.text.length > 0), label).toBe(true)
+      expect(system[0]).toEqual({ type: 'text', text: 'I', cache_control: { type: 'ephemeral' } })
+    }
   })
 
   it('a string or single-block system message keeps today\'s placement', () => {
     const single = systemOf(INSTRUCTIONS, null, null)
     expect(single.content).toEqual([{ type: 'text', text: INSTRUCTIONS }])
-    expect(convert(markSystemBlock0([single, new HumanMessage('x')])).system).toEqual([
+    expect(convert(applyCacheBreakpoints([single, new HumanMessage('x')])).system).toEqual([
       { type: 'text', text: INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
     ])
-    expect(convert(markSystemBlock0([new SystemMessage('S'), new HumanMessage('x')])).system).toEqual([
+    expect(convert(applyCacheBreakpoints([new SystemMessage('S'), new HumanMessage('x')])).system).toEqual([
       { type: 'text', text: 'S', cache_control: { type: 'ephemeral' } },
     ])
   })
@@ -373,8 +360,11 @@ describe('MC-04b case c: text compatibility against the one oracle', () => {
       for (const s of summaryContexts) {
         const out = writeSummary(input, s)
         expect(joined(out), JSON.stringify({ x, s })).toBe(legacyWrite(j, s))
-        // Every output block is exactly type/text and, when created, non-empty.
-        for (const block of out as Block[]) expect(Object.keys(block).sort()).toEqual(['text', 'type'])
+        // Every output block is exactly type/text with non-empty text.
+        for (const block of out as Block[]) {
+          expect(Object.keys(block).sort()).toEqual(['text', 'type'])
+          expect(block.text.length, JSON.stringify({ x, s })).toBeGreaterThan(0)
+        }
         equations++
       }
     }

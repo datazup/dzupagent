@@ -24,13 +24,12 @@
  * block of at least 1 400 o200k tokens; the original three are the disclosed
  * short-prefix case (structurally stable, not cache-eligible).
  *
- * In this package `@dzupagent/context` resolves to a prebuilt `dist` and
- * relative imports into `packages/context` are forbidden (boundary test). The
- * system breakpoint is therefore placed by the test-local `markSystemBlock0`
- * (the item-1 rule, pinned to `applyCacheBreakpoints` by the context test's
- * "contract" case), and the item-4 gate decision is computed locally with the
- * counter `resolveTokenCounter` selects for a Claude id (`TiktokenCounter`).
- * `cacheMarkers*` keep MC-04a's method (the installed injector) unchanged.
+ * All placement and gating is production `@dzupagent/context` code
+ * (`applyCacheBreakpoints` for structural placement, the injector for the
+ * gated payload and `cacheMarkers*`). MC-04b gates run this file with the
+ * isolated candidate resolution (`--config
+ * node_modules/.mc04b-candidate/vitest.config.mts`, aliasing
+ * `@dzupagent/context` to this worktree's `packages/context/src`).
  */
 import { createRequire } from 'node:module'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -48,6 +47,7 @@ import {
   CharEstimateCounter,
   TiktokenCounter,
   TokenLifecycleManager,
+  applyCacheBreakpoints,
   createTokenBudget,
   injectPromptCacheMarkersForModel,
   type TokenCounter,
@@ -429,48 +429,29 @@ interface PrefixMeasure {
   /** Text of those blocks, for the o200k token estimate. */
   text: string
   /**
-   * Whether the item-4 size gate (tokenizer estimate >= 1024) would open for
-   * this prompt. Structural placement above is measured independent of it.
+   * Whether the production injector's size gate (item 4) opened for this
+   * prompt. Structural placement above is measured independent of it.
    */
   cacheGateOpen: boolean
+  /** System breakpoint index in the gated (injector) payload; `null` when the gate stayed closed. */
+  gatedBreakpointIndex: number | null
 }
 
-/** MC-04b item 1 system-breakpoint rule (verbatim copy of the context test's contract helper). */
-function markSystemBlock0(messages: BaseMessage[]): BaseMessage[] {
-  const marker = { type: 'ephemeral' }
-  return messages.map((m, index) => {
-    if (index !== 0 || m._getType() !== 'system') return m
-    const content = m.content
-    if (typeof content === 'string') {
-      return new SystemMessage({ content: content ? [{ type: 'text', text: content, cache_control: marker }] : '' })
-    }
-    const blocks = (content as Array<Record<string, unknown>>).map((b) => ({ ...b }))
-    const textOnly = blocks.length >= 2 && blocks.every((b) => b['type'] === 'text' && typeof b['text'] === 'string')
-    if (textOnly) {
-      blocks.forEach((b, j) => {
-        if (j === 0) b['cache_control'] = marker
-        else delete b['cache_control']
-      })
-    } else if (blocks.length > 0) {
-      blocks[blocks.length - 1]!['cache_control'] = marker
-    }
-    return new SystemMessage({ content: blocks as never })
-  })
-}
-
-/** MC-04b item 4 gate: tokenizer estimate (string, or JSON of block content) >= 1024 for the Claude id. */
-const GATE_COUNTER = new TiktokenCounter()
-function cacheGateOpen(messages: BaseMessage[]): boolean {
-  const tokens = messages.reduce((sum, m) => sum + GATE_COUNTER.count(
-    typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-    CLAUDE_MODEL_ID,
-  ), 0)
-  return tokens >= 1024
+function systemBreakpoint(messages: BaseMessage[]) {
+  const payload = convertPromptToAnthropic(new ChatPromptValue(messages)) as { system?: unknown }
+  const system = (typeof payload.system === 'string'
+    ? [{ type: 'text', text: payload.system }]
+    : (payload.system ?? [])) as Array<{ text?: string; cache_control?: unknown }>
+  return system.findIndex(b => b.cache_control !== undefined)
 }
 
 function prefixMeasure(messages: BaseMessage[]): PrefixMeasure {
-  const cached = markSystemBlock0(messages)
-  const gateOpen = cacheGateOpen(messages)
+  // Structural placement: production `applyCacheBreakpoints`, independent of the size gate.
+  const cached = applyCacheBreakpoints(messages)
+  // Gated payload: what the production injector emits (unchanged array when its gate stays closed).
+  const gated = injectPromptCacheMarkersForModel(messages, CLAUDE_MODEL)
+  const gateOpen = gated !== messages
+  const gatedBreakpointIndex = gateOpen ? systemBreakpoint(gated) : null
   const payload = convertPromptToAnthropic(new ChatPromptValue(cached)) as { system?: unknown }
   const system = (typeof payload.system === 'string'
     ? [{ type: 'text', text: payload.system }]
@@ -482,6 +463,7 @@ function prefixMeasure(messages: BaseMessage[]): PrefixMeasure {
     bytes: JSON.stringify(through),
     text: through.map(b => b.text ?? '').join(''),
     cacheGateOpen: gateOpen,
+    gatedBreakpointIndex,
   }
 }
 
@@ -772,7 +754,14 @@ describe('MC-04a compression economy on fixed transcripts', () => {
           for (const [phase, m] of [['before', step.prefixBefore], ['after', step.prefixAfter]] as const) {
             expect(m.breakpointIndex, `${step.label} ${phase}`).toBe(0)
             expect(m.bytes, `${step.label} ${phase}`).toBe(expectedBytes)
+            // Gated payload: when the production gate opens, the injector's system breakpoint is block 0 too;
+            // when it stays closed there is no gated breakpoint (and no after-markers).
+            expect(m.gatedBreakpointIndex, `${step.label} ${phase} gated`).toBe(m.cacheGateOpen ? 0 : null)
           }
+          if (!step.prefixAfter.cacheGateOpen) expect(step.cacheMarkersAfter, step.label).toBe(0)
+          // Production item-4 gate on the compressed outputs: the long chat compresses below 1024 tokenizer
+          // tokens (gate closed); the other fixtures stay above it (gate open).
+          expect(step.prefixAfter.cacheGateOpen, `${step.label} gate`).toBe(fixture.name !== 'long-chat')
         }
         expect(reusablePrefix(run).prefixStable).toBe(true)
       })
@@ -817,6 +806,7 @@ describe('MC-04a compression economy on fixed transcripts', () => {
             breakpointIndexAfter: s.prefixAfter.breakpointIndex,
             cacheGateOpenBefore: s.prefixBefore.cacheGateOpen,
             cacheGateOpenAfter: s.prefixAfter.cacheGateOpen,
+            gatedBreakpointIndexAfter: s.prefixAfter.gatedBreakpointIndex,
             prefixBytesAfter: Buffer.byteLength(s.prefixAfter.bytes, 'utf8'),
             prefixTokensAfter: COUNTER.count(s.prefixAfter.text, COUNT_MODEL_ID),
             prefixStable: s.prefixBefore.bytes === s.prefixAfter.bytes

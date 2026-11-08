@@ -179,57 +179,6 @@ describe('MC-04b case b: converted Anthropic payload', () => {
   })
 })
 
-/**
- * The agent-side MC-04b tests (`packages/agent/src/__tests__/stable-prefix-cache.test.ts`
- * and the MC-04a eval) place the system breakpoint with this rule, copied
- * verbatim, because in that package `@dzupagent/context` resolves to a
- * prebuilt `dist` and relative imports into this package are forbidden. This
- * contract case pins the copy to `applyCacheBreakpoints`.
- */
-function markSystemBlock0(messages: BaseMessage[]): BaseMessage[] {
-  const marker = { type: 'ephemeral' }
-  return messages.map((m, index) => {
-    if (index !== 0 || m._getType() !== 'system') return m
-    const content = m.content
-    if (typeof content === 'string') {
-      return new SystemMessage({ content: content ? [{ type: 'text', text: content, cache_control: marker }] : '' })
-    }
-    const blocks = (content as Array<Record<string, unknown>>).map((b) => ({ ...b }))
-    const textOnly = blocks.length >= 2 && blocks.every((b) => b['type'] === 'text' && typeof b['text'] === 'string')
-    if (textOnly) {
-      blocks.forEach((b, j) => {
-        if (j === 0) b['cache_control'] = marker
-        else delete b['cache_control']
-      })
-    } else if (blocks.length > 0) {
-      blocks[blocks.length - 1]!['cache_control'] = marker
-    }
-    return new SystemMessage({ content: blocks as never })
-  })
-}
-
-describe('MC-04b contract: the agent-side placement rule equals applyCacheBreakpoints', () => {
-  const shapes: Array<[string, SystemMessage]> = [
-    ['three text blocks', systemBlocks('I', '\n\nmemo', `\n\n## Prior Conversation Context\n\ns`)],
-    ['two text blocks', systemBlocks('I', '\n\nmemo')],
-    ['one text block', systemBlocks('I')],
-    ['string', new SystemMessage('I\n\nmemo')],
-    ['stale later marker', new SystemMessage({
-      content: [{ type: 'text', text: 'I' }, { type: 'text', text: '\n\nm', cache_control: MARKER }],
-    })],
-    ['mixed blocks', new SystemMessage({
-      content: [{ type: 'text', text: 'I' }, { type: 'image_url', image_url: { url: 'data:x' } }],
-    })],
-  ]
-  for (const [label, system] of shapes) {
-    it(`same converted system field: ${label}`, () => {
-      const rest = conversation(2)
-      expect(payload(markSystemBlock0([system, ...rest])).system)
-        .toEqual(payload(applyCacheBreakpoints([system, ...rest])).system)
-    })
-  }
-})
-
 describe('MC-04b case d: tokenizer-based cache-size gate (item 4)', () => {
   const counter = resolveTokenCounter(undefined, CLAUDE)
 

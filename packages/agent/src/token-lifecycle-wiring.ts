@@ -146,6 +146,7 @@ function readSummary(content: BaseMessage['content']): string | null {
  *     every block);
  *   - trim: the last remaining text block is `trimEnd()`ed and omitted when
  *     that empties it, repeatedly, as the string path trims `base`;
+ *   - every remaining empty text block (leading or interior) is omitted;
  *   - append: the replacement is its own block, `'\n\n' + summary` when a
  *     block remains and `summary` otherwise; an empty summary appends nothing.
  */
@@ -198,11 +199,15 @@ function writeSummary(
     kept.pop()
   }
 
+  // Omit every empty text block (leading and interior too): providers reject
+  // empty text blocks, and dropping `''` leaves the joined text unchanged.
+  const nonEmpty = kept.filter(block => !(block.type === 'text' && block.text === ''))
+
   // Append the replacement as its own block.
   if (summaryContext) {
-    kept.push({ type: 'text', text: kept.length > 0 ? `\n\n${summaryContext}` : summaryContext })
+    nonEmpty.push({ type: 'text', text: nonEmpty.length > 0 ? `\n\n${summaryContext}` : summaryContext })
   }
-  return kept as BaseMessage['content']
+  return nonEmpty as BaseMessage['content']
 }
 
 /**
