@@ -283,12 +283,14 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
     const file = { ...v030Message('x', 'm-f'), parts: [{ kind: 'file', file: { uri: 'https://example.invalid/f' } }] }
     expect((await client.call('message/send', { message: file })).error?.code).toBe(A2A_CONTENT_TYPE_NOT_SUPPORTED)
     const { messageId: _omitted, ...noId } = v030Message('x', 'm-n')
+    const { kind: _kind, ...noKind } = v030Message('x', 'm-k')
     for (const message of [
       noId,
       { ...v030Message('x', 'm-r'), role: 'system' },
       { ...v030Message('x', 'm-e'), parts: [] },
       { ...v030Message('x', 'm-t'), parts: [{ kind: 'text' }] },
       { ...v030Message('x', 'm-u'), parts: [{ kind: 'video' }] },
+      noKind,
       'not an object',
     ]) {
       expect((await client.call('message/send', { message })).error?.code).toBe(JSONRPC_INVALID_PARAMS)
@@ -321,7 +323,9 @@ describe('A2A v0.3.0 message/send with store access', () => {
     app.route('', createA2ARoutes({ agentCard, taskStore: store, ...extra }))
     const post = async (body: unknown) =>
       (await app.request('/a2a', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).text()
-    return { app, store, post }
+    const postRaw = async (text: string) =>
+      (await app.request('/a2a', { method: 'POST', headers: { 'content-type': 'application/json' }, body: text })).text()
+    return { app, store, post, postRaw }
   }
 
   it('continues an input-required task: working state, populated history with synthesized ids, populated artifacts', async () => {
@@ -343,6 +347,44 @@ describe('A2A v0.3.0 message/send with store access', () => {
       ],
       artifacts: [{ artifactId: `${created.id}-a0`, name: 'draft', parts: [{ kind: 'text', text: 'v1' }] }],
     })
+  })
+
+  it('refuses a missing discriminator and malformed metadata before any task is stored or executed', async () => {
+    const seen: string[] = []
+    const { store, post } = build({ onTaskSubmitted: async (task) => { seen.push(task.id) } })
+    const { kind: _kind, ...noKind } = v030Message('x', 'm-k')
+    const ok = v030Message('x', 'm-ok')
+    for (const params of [
+      { message: noKind },
+      { message: ok, metadata: 'text' },
+      { message: ok, metadata: [] },
+      { message: ok, metadata: null },
+      { message: ok, metadata: { agentName: 42 } },
+      { message: ok, metadata: { agentName: '' } },
+    ]) {
+      const reply = JSON.parse(await post({ jsonrpc: '2.0', id: 1, method: 'message/send', params })) as { error?: { code: number } }
+      expect(reply.error?.code).toBe(JSONRPC_INVALID_PARAMS)
+    }
+    expect(await store.list()).toEqual([])
+    expect(seen).toEqual([])
+  })
+
+  it('keeps __proto__ and constructor keys in data and metadata as plain data and leaves every prototype alone', async () => {
+    const { store, postRaw } = build()
+    const poison = '{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}'
+    const text = await postRaw(
+      '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","messageId":"m-p","role":"user",'
+        + `"parts":[{"kind":"data","data":${poison}}]},"metadata":{"agentName":"echo-agent","extra":${poison}}}}`
+    )
+    const reply = JSON.parse(text) as { result?: { id: string }; error?: unknown }
+    expect(reply.error).toBeUndefined()
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
+    expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
+    expect(Object.hasOwn(Object.getPrototypeOf(Object.prototype) ?? {}, 'polluted')).toBe(false)
+    const stored = await store.get(reply.result?.id ?? '')
+    expect(stored?.agentName).toBe('echo-agent')
+    expect(stored?.messages).toHaveLength(1)
+    expect(Object.getPrototypeOf(stored?.messages[0]?.parts[0]?.data)).toBe(Object.prototype)
   })
 
   it('hands a new task to the host callback exactly as tasks/send does', async () => {

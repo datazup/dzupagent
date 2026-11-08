@@ -26,9 +26,9 @@ describe('A2A v0.3.0 mappers', () => {
   })
 
   it('rejects what the specification rules out, and flags file parts as unsupported content', () => {
-    const base = { messageId: 'm', role: 'user', parts: [{ kind: 'text', text: 'a' }] }
+    const base = { kind: 'message', messageId: 'm', role: 'user', parts: [{ kind: 'text', text: 'a' }] }
     const bad = [
-      null, [], { ...base, kind: 'task' }, { ...base, messageId: '' }, { ...base, role: 'x' }, { ...base, parts: {} },
+      null, [], { ...base, kind: 'task' }, { messageId: 'm', role: 'user', parts: [{ kind: 'text', text: 'a' }] }, { ...base, messageId: '' }, { ...base, role: 'x' }, { ...base, parts: {} },
       { ...base, parts: [null] }, { ...base, parts: [{ kind: 'data', data: [] }] }, { ...base, taskId: 3 }, { ...base, contextId: '' },
     ]
     for (const value of bad) expect(parseMessageV030(value)).toMatchObject({ ok: false, reason: 'invalid' })

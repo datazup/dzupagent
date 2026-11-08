@@ -33,6 +33,18 @@ export async function handleMessageSend(
     );
   }
 
+  // Validate everything the delegate will consume before any store operation.
+  const metadata = params["metadata"];
+  if (metadata !== undefined) {
+    if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+      return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, "params.metadata must be an object");
+    }
+    const agentName = (metadata as Record<string, unknown>)["agentName"];
+    if (agentName !== undefined && (typeof agentName !== "string" || agentName.length === 0)) {
+      return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, "metadata.agentName must be a non-empty string");
+    }
+  }
+
   const { taskId } = parsed;
   if (taskId !== undefined) {
     // Unknown, or another owner's or tenant's: indistinguishable (existing isolation policy).
@@ -42,14 +54,13 @@ export async function handleMessageSend(
     }
   }
 
-  const metadata = params["metadata"];
   const delegated = await handleTasksSend(
     {
       ...req,
       params: {
         ...(taskId === undefined ? {} : { id: taskId }),
         message: parsed.message,
-        ...(typeof metadata === "object" && metadata !== null && !Array.isArray(metadata) ? { metadata } : {}),
+        ...(metadata === undefined ? {} : { metadata }),
       },
     },
     config,

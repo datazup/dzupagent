@@ -42,7 +42,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export function parseMessageV030(value: unknown): ParsedMessageV030 {
   const invalid = (detail: string): ParsedMessageV030 => ({ ok: false, reason: 'invalid', detail })
   if (!isRecord(value)) return invalid('params.message must be an object')
-  if (value['kind'] !== undefined && value['kind'] !== 'message') return invalid('message.kind must be "message"')
+  if (value['kind'] !== 'message') return invalid('message.kind must be "message"')
   if (typeof value['messageId'] !== 'string' || value['messageId'].length === 0) return invalid('message.messageId is required')
   const role = value['role']
   if (role !== 'user' && role !== 'agent') return invalid('message.role must be "user" or "agent"')
