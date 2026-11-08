@@ -174,6 +174,64 @@ it does not expose the observation value or source excerpt. Product-owned
 approval UI should consume this adapter rather than being added to the memory
 package.
 
+### Restart-safe observer backlog (`pendingBuffer`)
+
+Without `pendingBuffer`, the observer backlog lives in process memory only: a
+restart loses every message below `observerThreshold`, and the batch of a
+failed run. With it, the backlog survives restarts:
+
+```typescript
+const pendingBuffer = new BaseStoreObservationBufferStore({
+  store, // the same BaseStore
+  namespace: 'observation-buffer', // private; never the observation namespace
+  scopeKeys: ['tenantId', 'workspaceId'],
+})
+
+const observations = new ObservationalMemory({
+  // ...as above: candidate-first with a candidateStore
+  observationWriteMode: 'candidate-first',
+  candidateStore,
+  pendingBuffer,
+})
+
+await observations.observe(messages)       // never throws for persistence
+await observations.whenBufferPersisted()   // { persisted, status, revision }
+```
+
+- **Candidate store required.** `pendingBuffer` needs `observationWriteMode:
+  'candidate-first'` and a `candidateStore` that implements `loadWithStatus`
+  (`MemoryServiceObservationCandidateStore` does). The constructor rejects any
+  other combination, because "processed" is defined by a durable candidate
+  handoff.
+- **One record per namespace and scope** holds the backlog (the message type,
+  content and id the extractor reads), the trigger count and a revision. All
+  writes run on one serial queue in call order; `reset()` fences queued writes
+  and deletes the record.
+- **Kept until processed.** A run is processed only when extraction succeeded,
+  every candidate it staged was persisted, every earlier failed candidate write
+  was retried successfully, and the candidate and dedup reads succeeded. Then
+  the record keeps only messages that arrived during the run, or is deleted.
+  Otherwise the batch is kept, in memory and in the record. The record never
+  holds more than `max(200, 4 × observerThreshold)` messages; the oldest are
+  dropped first. There is no TTL.
+- **Restore before first use.** The first `observe()` (or
+  `restorePendingMessages()`) restores the record in front of newer messages.
+  If the store cannot be read, restoration stays pending and is retried: new
+  messages are kept in memory, nothing is written over the unknown record, and
+  the observer does not run.
+- **Exactly-once candidates.** Dedup compares against durable memory plus
+  every captured, candidate, confirmed or in-flight record, so a replayed or
+  re-extracted fact does not stage a second candidate.
+- **`whenBufferPersisted()`** resolves when the queue is drained and reports
+  whether the durable record matches memory. Failed writes are reported through
+  `observation:buffer:persistence-failed` and retried with the newest snapshot
+  on the next change.
+- **Raw conversation text.** The record stores message content verbatim and is
+  written directly to the store, bypassing MemoryService sanitization and PII
+  redaction. Keep its namespace private, non-searchable and inside the tenant
+  and user scope. A host `observationMessageReferenceResolver` sees restored
+  messages with only their type, content and id.
+
 ## Store Backends
 
 - **PostgresStore** -- Production, via `@langchain/langgraph-checkpoint-postgres`

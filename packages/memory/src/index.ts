@@ -213,10 +213,29 @@ export {
   observationCandidateValueDigest,
 } from "./observation-candidate-store.js";
 export type {
+  ObservationCandidateLoadResult,
   ObservationCandidateRetention,
   ObservationCandidateStore,
   ObservationConfirmationReceipt,
 } from "./observation-candidate-store.js";
+
+// --- Observation Buffer Store (restart-safe observer backlog) ---
+export {
+  BaseStoreObservationBufferStore,
+  OBSERVATION_BUFFER_SCHEMA,
+  ObservationBufferSerializationError,
+  deserializeObservationMessage,
+  parseObservationBufferRecord,
+  serializeObservationMessage,
+} from "./observation-buffer-store.js";
+export type {
+  BaseStoreObservationBufferStoreOptions,
+  ObservationBufferLoadResult,
+  ObservationBufferRecord,
+  ObservationBufferStore,
+  PersistedObservationMessage,
+  PersistedObservationMessageType,
+} from "./observation-buffer-store.js";
 
 // --- Write Policy ---
 export { defaultWritePolicy, composePolicies } from "./write-policy.js";
@@ -355,6 +374,7 @@ export type {
 // --- Observational Memory (Observer/Reflector) ---
 export { ObservationalMemory } from "./observational-memory.js";
 export type {
+  BufferPersistResult,
   ObservationalMemoryConfig,
   ObservationalMemoryStats,
   ObservationLifecycleEvent,
