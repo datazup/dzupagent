@@ -5,10 +5,11 @@
  * socket (the repository lint bans raw `fetch`) and JSON-RPC 2.0 envelopes. It imports nothing from DzupAgent's own
  * client, types or helpers, so a defect shared by both sides of an in-repo helper
  * cannot hide. Protocol constants are literals taken from the JSON-RPC 2.0 and A2A
- * specifications. Dialect under test: card at `/.well-known/agent.json`, methods
- * `tasks/send`, `tasks/get`, `tasks/cancel` on `POST /a2a`.
+ * specifications. Dialects under test: the legacy one (card at `/.well-known/agent.json`, methods
+ * `tasks/send`, `tasks/get`, `tasks/cancel` on `POST /a2a`) and A2A v0.3.0 (card at
+ * `/.well-known/agent-card.json`, method `message/send`; A2A-05-SERVER-V030-20261108-R1).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { serve } from '@hono/node-server'
 import type { ServerType } from '@hono/node-server'
 import { request as httpRequest } from 'node:http'
@@ -24,6 +25,7 @@ const JSONRPC_METHOD_NOT_FOUND = -32601
 const JSONRPC_INVALID_PARAMS = -32602
 const A2A_TASK_NOT_FOUND = -32001
 const A2A_TASK_NOT_CANCELABLE = -32002
+const A2A_CONTENT_TYPE_NOT_SUPPORTED = -32005
 
 interface Envelope {
   jsonrpc: string
@@ -96,6 +98,14 @@ class RawClient {
 const as = (owner: string, tenant: string) => ({ 'x-test-owner': owner, 'x-test-tenant': tenant })
 
 const textMessage = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
+
+/** A message as an A2A v0.3.0 client writes it. */
+const v030Message = (text: string, messageId: string) => ({
+  kind: 'message',
+  messageId,
+  role: 'user',
+  parts: [{ kind: 'text', text }],
+})
 
 describe('A2A independent-client interoperability (DzupAgent server)', () => {
   let server: ServerType
@@ -202,9 +212,158 @@ describe('A2A independent-client interoperability (DzupAgent server)', () => {
     expect([owned.id, owned.state]).toEqual([task.id, 'submitted'])
   })
 
-  it('records the dialect gap against v0.3.0: message/send and /.well-known/agent-card.json are not served', async () => {
+  it('serves an A2A v0.3.0 agent card at /.well-known/agent-card.json without credentials', async () => {
+    const { status, type, body } = await new RawClient(base).card('/.well-known/agent-card.json')
+    expect(status).toBe(200)
+    expect(type).toMatch(/application\/json/)
+    expect(body).toEqual({
+      protocolVersion: '0.3.0',
+      name: 'interop-server',
+      description: 'Interop fixture',
+      url: 'http://localhost/a2a',
+      preferredTransport: 'JSONRPC',
+      version: '1.2.3',
+      capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+      defaultInputModes: ['text/plain'],
+      defaultOutputModes: ['text/plain'],
+      skills: [{ id: 'echo-agent', name: 'echo-agent', description: 'Echoes input', tags: [] }],
+    })
+  })
+
+  it('message/send creates a task and answers with a v0.3.0 Task whose history holds the message just sent', async () => {
     const client = new RawClient(base, as('alice', 'tenant-1'))
-    expect((await client.call('message/send', { message: textMessage('hi') })).error?.code).toBe(JSONRPC_METHOD_NOT_FOUND)
-    expect((await client.card('/.well-known/agent-card.json')).status).toBe(404)
+    const sent = await client.call('message/send', { message: v030Message('hello', 'client-msg-1'), metadata: { agentName: 'echo-agent' } })
+    expect(sent.error).toBeUndefined()
+    const task = sent.result as Record<string, unknown>
+    const id = task['id'] as string
+    expect(task).toEqual({
+      kind: 'task',
+      id,
+      contextId: id,
+      status: { state: 'submitted', timestamp: expect.any(String) },
+      history: [{ kind: 'message', messageId: `${id}-m0`, role: 'user', parts: [{ kind: 'text', text: 'hello' }] }],
+      artifacts: [],
+      metadata: { agentName: 'echo-agent' },
+    })
+    // The same task is visible through the legacy dialect, so the two share one store.
+    expect(((await client.call('tasks/get', { id })).result as { agentName: string }).agentName).toBe('echo-agent')
+  })
+
+  it('message/send echoes a supplied contextId and accepts data parts', async () => {
+    const client = new RawClient(base, as('alice', 'tenant-1'))
+    const message = { ...v030Message('x', 'm-ctx'), contextId: 'ctx-7', parts: [{ kind: 'data', data: { a: 1 } }] }
+    const task = (await client.call('message/send', { message })).result as { contextId: string; history: unknown[] }
+    expect(task.contextId).toBe('ctx-7')
+    expect(task.history).toEqual([expect.objectContaining({ parts: [{ kind: 'data', data: { a: 1 } }] })])
+  })
+
+  it('message/send reports an unknown taskId as task not found, never as a new task', async () => {
+    const client = new RawClient(base, as('alice', 'tenant-1'))
+    const before = (await client.call('tasks/get', { id: 'a2a-task-never' })).error?.code
+    expect(before).toBe(A2A_TASK_NOT_FOUND)
+    const reply = await client.call('message/send', { message: { ...v030Message('hi', 'm-unknown'), taskId: 'a2a-task-never' } })
+    expect(reply.error?.code).toBe(A2A_TASK_NOT_FOUND)
+    expect((await client.call('tasks/get', { id: 'a2a-task-never' })).error?.code).toBe(A2A_TASK_NOT_FOUND)
+  })
+
+  it('message/send does not reveal or touch another owner\'s or tenant\'s task', async () => {
+    const alice = new RawClient(base, as('alice', 'tenant-1'))
+    const task = (await alice.call('message/send', { message: v030Message('mine', 'm-a') })).result as { id: string }
+    for (const headers of [as('bob', 'tenant-1'), as('alice', 'tenant-2'), as('bob', 'tenant-2')]) {
+      const other = new RawClient(base, headers)
+      const reply = await other.call('message/send', { message: { ...v030Message('intrude', 'm-x'), taskId: task.id } })
+      expect(reply.error?.code).toBe(A2A_TASK_NOT_FOUND)
+    }
+    const owned = (await alice.call('tasks/get', { id: task.id })).result as { messages: unknown[] }
+    expect(owned.messages).toHaveLength(1)
+  })
+
+  it('message/send refuses file parts and malformed messages with the specified codes', async () => {
+    const client = new RawClient(base, as('alice', 'tenant-1'))
+    const file = { ...v030Message('x', 'm-f'), parts: [{ kind: 'file', file: { uri: 'https://example.invalid/f' } }] }
+    expect((await client.call('message/send', { message: file })).error?.code).toBe(A2A_CONTENT_TYPE_NOT_SUPPORTED)
+    const { messageId: _omitted, ...noId } = v030Message('x', 'm-n')
+    for (const message of [
+      noId,
+      { ...v030Message('x', 'm-r'), role: 'system' },
+      { ...v030Message('x', 'm-e'), parts: [] },
+      { ...v030Message('x', 'm-t'), parts: [{ kind: 'text' }] },
+      { ...v030Message('x', 'm-u'), parts: [{ kind: 'video' }] },
+      'not an object',
+    ]) {
+      expect((await client.call('message/send', { message })).error?.code).toBe(JSONRPC_INVALID_PARAMS)
+    }
+    expect((await client.call('message/send')).error?.code).toBe(JSONRPC_INVALID_PARAMS)
+    expect((await client.call('message/send', {})).error?.code).toBe(JSONRPC_INVALID_PARAMS)
   })
 })
+
+/**
+ * In-process app with store access: the states and artifacts a socket client cannot create on its own, and the
+ * proof that the legacy surface is unchanged. Expected bytes are literals captured from an unmodified checkout of
+ * DzupAgent base 98e8e37ab9854395cff9867985f5c68df403a48a with the same fixture and a fixed clock.
+ */
+describe('A2A v0.3.0 message/send with store access', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function build(extra: Partial<Parameters<typeof createA2ARoutes>[0]> = {}) {
+    const store = new InMemoryA2ATaskStore()
+    const app = new Hono()
+    const agentCard = buildAgentCard({
+      name: 'interop-server',
+      description: 'Interop fixture',
+      baseUrl: 'http://localhost',
+      version: '1.2.3',
+      agents: [{ name: 'echo-agent', description: 'Echoes input' }],
+    })
+    app.route('', createA2ARoutes({ agentCard, taskStore: store, ...extra }))
+    const post = async (body: unknown) =>
+      (await app.request('/a2a', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).text()
+    return { app, store, post }
+  }
+
+  it('continues an input-required task: working state, populated history with synthesized ids, populated artifacts', async () => {
+    const { store, post } = build()
+    const created = await store.create({ agentName: 'echo-agent', input: 'q', state: 'input-required', ownerId: null, tenantId: null })
+    await store.appendMessage(created.id, { role: 'agent', parts: [{ type: 'text', text: 'which one?' }] })
+    await store.addArtifact(created.id, { name: 'draft', parts: [{ type: 'text', text: 'v1' }] })
+    const reply = JSON.parse(await post({
+      jsonrpc: '2.0', id: 9, method: 'message/send', params: { message: { ...v030Message('the first', 'm-c'), taskId: created.id } },
+    })) as { result: Record<string, unknown> }
+    expect(reply.result).toEqual({
+      kind: 'task',
+      id: created.id,
+      contextId: created.id,
+      status: { state: 'working', timestamp: expect.any(String) },
+      history: [
+        { kind: 'message', messageId: `${created.id}-m0`, role: 'agent', parts: [{ kind: 'text', text: 'which one?' }] },
+        { kind: 'message', messageId: `${created.id}-m1`, role: 'user', parts: [{ kind: 'text', text: 'the first' }] },
+      ],
+      artifacts: [{ artifactId: `${created.id}-a0`, name: 'draft', parts: [{ kind: 'text', text: 'v1' }] }],
+    })
+  })
+
+  it('hands a new task to the host callback exactly as tasks/send does', async () => {
+    const seen: string[] = []
+    const { post } = build({ onTaskSubmitted: async (task) => { seen.push(`${task.agentName}:${String(task.input)}`) } })
+    await post({ jsonrpc: '2.0', id: 1, method: 'message/send', params: { message: v030Message('ping', 'm-cb'), metadata: { agentName: 'echo-agent' } } })
+    expect(seen).toEqual(['echo-agent:ping'])
+  })
+
+  it('leaves the legacy surface byte for byte as at the base', async () => {
+    vi.useFakeTimers({ now: new Date('2026-01-01T00:00:00.000Z') })
+    const { app, post } = build()
+    const card = await (await app.request('/.well-known/agent.json')).text()
+    const sent = await post({ jsonrpc: '2.0', id: 1, method: 'tasks/send', params: { agentName: 'echo-agent', message: { role: 'user', parts: [{ type: 'text', text: 'hello' }] } } })
+    const got = await post({ jsonrpc: '2.0', id: 2, method: 'tasks/get', params: { id: 'a2a-task-1' } })
+    expect(card).toBe(BASE_CARD)
+    expect(sent).toBe(BASE_SENT)
+    expect(got).toBe(BASE_GOT)
+  })
+})
+
+const BASE_CARD = '{"name":"interop-server","description":"Interop fixture","url":"http://localhost","version":"1.2.3","capabilities":[{"name":"echo-agent","description":"Echoes input","inputSchema":{"type":"object","properties":{}}}],"skills":[{"name":"echo-agent","description":"Echoes input"}]}'
+const BASE_SENT = '{"jsonrpc":"2.0","id":1,"result":{"agentName":"echo-agent","input":"hello","state":"submitted","ownerId":null,"tenantId":null,"id":"a2a-task-1","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","messages":[],"artifacts":[]}}'
+const BASE_GOT = '{"jsonrpc":"2.0","id":2,"result":{"agentName":"echo-agent","input":"hello","state":"submitted","ownerId":null,"tenantId":null,"id":"a2a-task-1","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","messages":[{"role":"user","parts":[{"type":"text","text":"hello"}]}],"artifacts":[]}}'

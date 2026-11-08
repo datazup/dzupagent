@@ -1,9 +1,11 @@
 /**
- * Agent card discovery route: GET /.well-known/agent.json
+ * Agent card discovery routes: GET /.well-known/agent.json (legacy) and
+ * GET /.well-known/agent-card.json (A2A v0.3.0)
  */
 import type { Hono } from "hono";
 import type { AppEnv } from "../../types.js";
 import type { A2ARoutesConfig } from "./helpers.js";
+import { toAgentCardV030 } from "../../a2a/agent-card-v030.js";
 import { rateLimiterMiddleware } from "../../middleware/rate-limiter.js";
 
 /**
@@ -22,14 +24,19 @@ export function registerWellKnownRoutes(
   app: Hono<AppEnv>,
   config: A2ARoutesConfig
 ): void {
-  app.use(
-    "/.well-known/agent.json",
-    rateLimiterMiddleware({
-      ...DEFAULT_WELL_KNOWN_RATE_LIMIT,
-      ...config.wellKnownRateLimit,
-    })
-  );
+  for (const path of ["/.well-known/agent.json", "/.well-known/agent-card.json"]) {
+    app.use(
+      path,
+      rateLimiterMiddleware({
+        ...DEFAULT_WELL_KNOWN_RATE_LIMIT,
+        ...config.wellKnownRateLimit,
+      })
+    );
+  }
   app.get("/.well-known/agent.json", (c) => {
     return c.json(config.agentCard);
+  });
+  app.get("/.well-known/agent-card.json", (c) => {
+    return c.json(toAgentCardV030(config.agentCard));
   });
 }
