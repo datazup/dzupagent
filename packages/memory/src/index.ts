@@ -653,6 +653,10 @@ export type {
   TenantSearchResult,
 } from "./tenant-scoped-store.js";
 
+// --- Segment-exact namespace matching (MC-05b) ---
+export { namespaceEquals, namespaceUnder } from "./namespace-match.js";
+export type { NamespacedItem } from "./namespace-match.js";
+
 // --- In-Memory Reference Tracker (cross-run promotion support) ---
 export { InMemoryReferenceTracker } from "./shared/reference-tracker.js";
 export type { ReferenceCountEntry } from "./shared/reference-tracker.js";

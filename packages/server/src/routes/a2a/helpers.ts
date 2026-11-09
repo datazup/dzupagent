@@ -29,6 +29,7 @@ export interface A2ARoutesConfig {
 
 /** Known A2A JSON-RPC methods. */
 export const A2A_METHODS = new Set([
+  "message/send",
   "tasks/send",
   "tasks/get",
   "tasks/cancel",

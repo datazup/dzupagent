@@ -33,6 +33,7 @@ import {
   type MemoryOperationOutcome,
   type MemoryOperationResult,
 } from "./operation-outcome.js";
+import { namespaceUnder } from "./namespace-match.js";
 
 /** Re-export under a more descriptive name for pruner consumers. */
 export type MemoryStore = ConsolidationStore;
@@ -137,9 +138,19 @@ const DEFAULT_SCHEDULE_TIMERS: PruneScheduleTimers = {
 };
 
 interface ParsedItem {
+  /** The item's own stored namespace — the delete target, not the scan prefix. */
+  namespace: string[];
   key: string;
   createdAt: number;
   strength: number;
+}
+
+/** Record identity is namespace plus key; JSON keeps the encoding injective. */
+function recordIdentity(item: ConsolidationStoreItem): string {
+  return JSON.stringify([
+    Array.isArray(item.namespace) ? item.namespace : null,
+    item.key,
+  ]);
 }
 
 /**
@@ -175,7 +186,13 @@ export class MemoryPruner {
     // (500), which is below the default `maxEntries` (1000), making the cap
     // unreachable at defaults. We page with `offset` (part of the
     // ConsolidationStore contract) until a short page comes back.
-    const items: ConsolidationStoreItem[] = [];
+    //
+    // Segment-exact scope (MC-05b): Postgres `search` is a string `LIKE`
+    // prefix on the `:`-joined path, so the scan of `['memories', 't1']` also
+    // returns `['memories', 't10']`. Only items whose own `namespace` is the
+    // scan prefix or a descendant of it are considered; an item without a
+    // `namespace` is ignored (fail closed) and never deleted.
+    const items: Array<ConsolidationStoreItem & { namespace: string[] }> = [];
     const seenKeys = new Set<string>();
     let scanComplete = true;
     let offset = 0;
@@ -203,11 +220,17 @@ export class MemoryPruner {
       let added = 0;
       for (const item of batch) {
         // Stores that ignore `offset` re-serve the same rows; de-dupe so the
-        // loop terminates instead of double-counting.
-        if (seenKeys.has(item.key)) continue;
-        seenKeys.add(item.key);
-        items.push(item);
+        // loop terminates instead of double-counting. Identity is namespace
+        // plus key, so equal keys in different descendants stay distinct.
+        // `added` counts every fresh raw row — in scope or not — so a page of
+        // out-of-scope rows does not end the scan early.
+        const identity = recordIdentity(item);
+        if (seenKeys.has(identity)) continue;
+        seenKeys.add(identity);
         added++;
+        if (namespaceUnder(item, namespace)) {
+          items.push({ ...item, namespace: [...item.namespace] });
+        }
       }
       if (batch.length < limit || added === 0) break;
       offset += batch.length;
@@ -266,7 +289,9 @@ export class MemoryPruner {
       const parsed = parseItem(item);
       if (parsed.createdAt !== 0 && parsed.createdAt < cutoff) {
         try {
-          await store.delete(namespace, item.key);
+          // Delete the item's own row (namespace plus key), never the scan
+          // prefix: a descendant's row lives at its own namespace.
+          await store.delete(parsed.namespace, parsed.key);
           expired++;
         } catch (error) {
           // delete failure → keep the entry for the next pass to consider
@@ -292,7 +317,7 @@ export class MemoryPruner {
       const victims = survivors.splice(0, overflow);
       for (const victim of victims) {
         try {
-          await store.delete(namespace, victim.key);
+          await store.delete(victim.namespace, victim.key);
           evicted++;
         } catch (error) {
           // Non-fatal — count the victim as a survivor on failure.
@@ -402,7 +427,9 @@ export class MemoryPruner {
  * canonical fields written by `MemoryService`), falling back to top-level
  * `createdAt` and the item's `createdAt` timestamp from the store wrapper.
  */
-function parseItem(item: ConsolidationStoreItem): ParsedItem {
+function parseItem(
+  item: ConsolidationStoreItem & { namespace: string[] },
+): ParsedItem {
   const value = item.value;
   const decay = value["_decay"];
   let strength = 1;
@@ -418,7 +445,7 @@ function parseItem(item: ConsolidationStoreItem): ParsedItem {
       : undefined;
   const wrapperCreatedAt = coerceWrapperTimestamp(item.createdAt);
   const createdAt = decayCreatedAt ?? valueCreatedAt ?? wrapperCreatedAt ?? 0;
-  return { key: item.key, createdAt, strength };
+  return { namespace: item.namespace, key: item.key, createdAt, strength };
 }
 
 function coerceWrapperTimestamp(

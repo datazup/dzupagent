@@ -9,6 +9,24 @@ interface BuildPreparedMessagesParams {
   messages: BaseMessage[]
 }
 
+/**
+ * Build the model-bound transcript: one leading `SystemMessage` followed by
+ * `messages`.
+ *
+ * MC-04b (MEMCTX-CACHE-PREFIX-20261108-R1): the system content is an ordered
+ * array of text blocks — instructions, then memory context (when present),
+ * then the conversation summary (when present) — each block with exactly the
+ * keys `type` and `text`, and no `additional_kwargs`. Positional order is the
+ * only contract: `applyCacheBreakpoints` caches block 0, so the instruction
+ * prefix stays byte-stable while recall and summaries change.
+ *
+ * Text compatibility: the `'\n\n'` separators live inside the block texts
+ * (every part after the first is prefixed with it), so the blocks' texts
+ * concatenated with no separator equal the former single string byte for
+ * byte. A block whose text would be empty is omitted (providers reject empty
+ * text blocks); with nothing left the content is `[]`, whose joined text is
+ * the former `''`.
+ */
 export function buildPreparedMessages({
   baseInstructions,
   memoryContext,
@@ -26,7 +44,12 @@ export function buildPreparedMessages({
     parts.push(summaryContext)
   }
 
-  return [new SystemMessage(parts.join('\n\n')), ...messages]
+  const blocks = parts
+    .map((part, index) => (index === 0 ? part : `\n\n${part}`))
+    .filter((text) => text.length > 0)
+    .map((text) => ({ type: 'text' as const, text }))
+
+  return [new SystemMessage({ content: blocks }), ...messages]
 }
 
 /**

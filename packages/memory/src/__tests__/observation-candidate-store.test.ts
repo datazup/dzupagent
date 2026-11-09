@@ -39,6 +39,8 @@ function createStore(options: { supportsDelete?: boolean } = {}) {
         .map(([key, value]) => ({
           key: key.slice(prefix.length),
           value,
+          // Fixture (MC-05b): `namespace` as a real store returns it.
+          namespace: [...namespace],
         }))
     }),
   }

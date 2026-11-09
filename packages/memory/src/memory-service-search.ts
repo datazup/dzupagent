@@ -23,6 +23,7 @@ import {
   buildVectorCollectionName,
 } from './memory-service-store.js'
 import type { MemoryEventBus, ReadContext } from './memory-service-types.js'
+import { namespaceEquals } from './namespace-match.js'
 
 /**
  * Build the metadata filter that binds the vector channel to exactly the
@@ -158,12 +159,16 @@ export async function searchMemoryWithStatus(
   try {
     // Fetch extra results so decay re-ranking can still fill the limit
     const fetchLimit = Math.min(limit * 2, limit + 20)
-    const results = await deps.store.search(
+    const rawResults = await deps.store.search(
       tuple,
       deps.capabilities.supportsPagination
         ? { query, limit: fetchLimit }
         : { query },
     )
+    // Exact leaf read (MC-05b): Postgres `search` is a string `LIKE` prefix on
+    // the `:`-joined path, so keep only items stored at exactly `tuple`.
+    // Descendants and items without a `namespace` are dropped (fail closed).
+    const results = rawResults.filter(r => namespaceEquals(r, tuple))
 
     const now = Date.now()
     const scored: ScoredKeyword[] = results.map((r, idx) => {

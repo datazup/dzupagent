@@ -19,6 +19,7 @@ import {
   handlePushNotificationSet,
   handlePushNotificationGet,
 } from "./jsonrpc-handlers.js";
+import { handleMessageSend } from "./jsonrpc-message-send.js";
 import { getSerializedJsonSizeBytes } from "../../validation/route-validator.js";
 import { logRouteError } from "../route-error.js";
 
@@ -49,6 +50,8 @@ async function handleJsonRpcMethod(
 
   try {
     switch (req.method) {
+      case "message/send":
+        return await handleMessageSend(req, config, scope);
       case "tasks/send":
         return await handleTasksSend(req, config, scope);
       case "tasks/get":

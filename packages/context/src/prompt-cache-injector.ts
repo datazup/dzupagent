@@ -14,22 +14,25 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
 import { applyCacheBreakpoints } from './prompt-cache.js'
+import { resolveTokenCounter } from './message-token-estimate.js'
 
 const DEFAULT_MIN_TOKENS = 1024
 
-function estimateMessageTokens(messages: BaseMessage[]): number {
-  let chars = 0
+/**
+ * Token estimate for the size gate (MC-04b item 4): the counter
+ * `resolveTokenCounter(undefined, modelId)` selects — the tokenizer-backed
+ * counter for a known model id — applied to each message's text (string
+ * content, or the JSON of block content as a conservative estimate).
+ */
+function estimateMessageTokens(messages: BaseMessage[], modelId: string): number {
+  const counter = resolveTokenCounter(undefined, modelId)
+  let tokens = 0
   for (const m of messages) {
     const content = m.content
-    if (typeof content === 'string') {
-      chars += content.length
-    } else {
-      // MessageContentComplex[] — stringify to get a conservative estimate
-      chars += JSON.stringify(content).length
-    }
+    const text = typeof content === 'string' ? content : JSON.stringify(content)
+    tokens += counter.count(text, modelId)
   }
-  // ~4 chars per token
-  return Math.ceil(chars / 4)
+  return tokens
 }
 
 /**
@@ -110,7 +113,7 @@ export function injectPromptCacheMarkers(
   if (!isClaudeId(modelId)) return messages
 
   const minTokens = opts?.minTokensForCache ?? DEFAULT_MIN_TOKENS
-  if (estimateMessageTokens(messages) < minTokens) return messages
+  if (estimateMessageTokens(messages, modelId) < minTokens) return messages
 
   return applyCacheBreakpoints(messages)
 }
