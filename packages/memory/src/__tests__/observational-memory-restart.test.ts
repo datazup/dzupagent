@@ -62,6 +62,8 @@ const FACTS: Record<string, string> = {
   M6: 'Mobile builds ship through the beta channel first',
   M7: 'Support tickets close after fourteen quiet days',
 }
+// Synthetic facts for the writer-capacity cases (pairwise Jaccard 0.6 < 0.7).
+for (let k = 8; k <= 130; k++) FACTS[`M${k}`] = `Synthetic fact item${k} recorded`
 
 const SOURCE_TEXT: Record<number, string> = {
   1: 'we always ship on tuesday morning',
@@ -74,7 +76,7 @@ const SOURCE_TEXT: Record<number, string> = {
 }
 
 function userText(k: number): string {
-  return `Turn ${k} note: M${k} ${SOURCE_TEXT[k]}`
+  return `Turn ${k} note: M${k} ${SOURCE_TEXT[k] ?? `synthetic source ${k}`}`
 }
 
 /** One turn: the user message carries marker `Mk`, the reply carries none. */
@@ -83,6 +85,11 @@ function turn(k: number): BaseMessage[] {
     new HumanMessage({ id: `u${k}`, content: userText(k) }),
     new AIMessage({ id: `a${k}`, content: `Noted turn ${k}.` }),
   ]
+}
+
+/** One user message per turn (`u{k}` carries `Mk`), for the many-fact cases. */
+function userTurns(from: number, to: number): BaseMessage[] {
+  return Array.from({ length: to - from + 1 }, (_, i) => turn(from + i)[0]!)
 }
 
 function turnContents(...turns: number[]): string[] {
@@ -198,7 +205,7 @@ type StoreMethod = 'get' | 'put' | 'search' | 'delete'
 interface StoreRule {
   method: StoreMethod
   ns: string
-  mode: 'reject' | 'block' | 'delay-result'
+  mode: 'reject' | 'block' | 'block-reject' | 'delay-result'
   remaining: number
   entered: Gate
   release: Gate
@@ -256,6 +263,10 @@ class ControlledStore {
     rule.remaining--
     rule.entered.open()
     if (rule.mode === 'reject') throw new Error(`${method} on ${ns} unavailable`)
+    if (rule.mode === 'block-reject') {
+      await rule.release.promise
+      throw new Error(`${method} on ${ns} unavailable`)
+    }
     if (rule.mode === 'block') {
       await rule.release.promise
       return call(...args)
@@ -570,37 +581,14 @@ describe('ObservationalMemory restart (MC-03a)', () => {
   describe('c. exactly once: staged-only and in-flight matches', () => {
     it('c7. a staged-only (never durable) match does not discharge the batch until it is persisted', async () => {
       const h = await harness()
-      const { source } = ORACLE['M1']!
-      const writer = new StagedWriter({ autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
-      writer.capture({
-        key: 'obs-preloaded-F1',
-        namespace: OBS_NS,
-        scope: SCOPE,
-        value: {
-          text: FACTS['M1'],
-          category: 'fact',
-          confidence: 0.9,
-          source: 'observer',
-          createdAt: 1,
-          modelGenerated: true,
-          promptVersion: 'observation-extraction/v3',
-          sourceMessageCount: 2,
-          evidenceReferences: [{
-            ref: `observation-message:unscoped:${source.id}`,
-            messageId: source.id,
-            role: source.role,
-            contentDigest: sha256(`${source.role}\u0000${source.text}`),
-            excerpt: source.text,
-          }],
-        },
-        confidence: 0.9,
-      })
       const flaky = new FlakyCandidateStore(h.candidateStore)
       flaky.failing = () => true
-      let om = h.start({ observerThreshold: 2, stagedWriter: writer, candidateStore: flaky })
+      let om = h.start({ observerThreshold: 2, candidateStore: flaky })
 
-      const failing = await om.observe(turn(1)) // matches the staged-only F1; its save fails
+      await om.observe(turn(1)) // F1 captured in the observer's writer; its save fails
+      const failing = await om.observe([]) // failures continue
       expect(failing!.skippedDuplicates).toBe(1)
+      expect(recordsWithFact(writerRecords(om), 'M1')).toHaveLength(1)
       await persistBoundary(om)
       expect(recordIds(await h.ctl.bufferRecord())).toEqual(['u1', 'a1'])
       expect(await h.durableCandidates()).toEqual([])
@@ -611,9 +599,77 @@ describe('ObservationalMemory restart (MC-03a)', () => {
       expect(await h.ctl.bufferRecord()).toBeNull()
       assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1'])
 
-      om = h.start({ observerThreshold: 2 }) // restart with a fresh writer
+      om = h.start({ observerThreshold: 2 }) // restart with a fresh observer
       await h.confirmAll(om)
       assertFactsExactlyOnce(await h.stored(), ['M1'])
+    })
+
+    describe('c9. an in-flight record without a durable candidate', () => {
+      async function inFlightWithoutCandidate() {
+        const h = await harness()
+        const flaky = new FlakyCandidateStore(h.candidateStore)
+        flaky.failing = () => true
+        const om = h.start({ observerThreshold: 2, candidateStore: flaky })
+        const first = await om.observe(turn(1))
+        const f1Key = recordsWithFact(first!.staged, 'M1')[0]!.key
+        await persistBoundary(om)
+        expect(recordIds(await h.ctl.bufferRecord())).toEqual(['u1', 'a1'])
+        expect(await h.durableCandidates()).toEqual([])
+
+        expect(await om.confirmObservation(f1Key)).toBe(false) // its candidate write fails too
+        expect(writerRecords(om).find(record => record.key === f1Key)?.stage).toBe('confirmed')
+        expect(await h.durableCandidates()).toEqual([])
+        return { h, flaky, om, f1Key }
+      }
+
+      async function replayWhileInFlight(
+        ctx: Awaited<ReturnType<typeof inFlightWithoutCandidate>>,
+        mode: 'block' | 'block-reject',
+      ) {
+        const held = ctx.h.ctl.on('put', OBS_NS, mode, 1)
+        const flushing = ctx.om.flushConfirmedObservations()
+        await held.entered.promise
+        expect([...inFlight(ctx.om).keys()]).toEqual([ctx.f1Key])
+        expect(recordsWithFact(writerRecords(ctx.om), 'M1')).toEqual([])
+
+        const replay = await ctx.om.observe([]) // re-runs the kept batch
+        expect(replay!.skippedDuplicates).toBe(1)
+        expect(replay!.staged).toEqual([])
+        await persistBoundary(ctx.om)
+        expect(recordIds(await ctx.h.ctl.bufferRecord())).toEqual(['u1', 'a1'])
+        return { held, flushing }
+      }
+
+      it('variant A: the held write fails; a restart with recovered stores stores F1 exactly once', async () => {
+        const ctx = await inFlightWithoutCandidate()
+        const { held, flushing } = await replayWhileInFlight(ctx, 'block-reject')
+        held.release.open() // the held write fails; candidate writes keep failing
+        expect(await flushing).toEqual([])
+        await persistBoundary(ctx.om)
+        expect(recordIds(await ctx.h.ctl.bufferRecord())).toEqual(['u1', 'a1'])
+
+        const om = ctx.h.start({ observerThreshold: 2 }) // restart, recovered stores
+        await om.observe([])
+        await persistBoundary(om)
+        expect(await ctx.h.ctl.bufferRecord()).toBeNull()
+        await ctx.h.confirmAll(om)
+        assertFactsExactlyOnce(await ctx.h.stored(), ['M1'])
+      })
+
+      it('variant B: the stores recover and the flush completes; the next run discharges the batch', async () => {
+        const ctx = await inFlightWithoutCandidate()
+        const { held, flushing } = await replayWhileInFlight(ctx, 'block')
+        ctx.flaky.failing = null
+        held.release.open()
+        expect((await flushing).map(record => record.key)).toEqual([ctx.f1Key])
+
+        await ctx.om.observe([])
+        await persistBoundary(ctx.om)
+        expect(await ctx.h.ctl.bufferRecord()).toBeNull()
+        assertFactsExactlyOnce(await ctx.h.stored(), ['M1'])
+        expect(ctx.om.getPendingObservationCandidates()).toEqual([])
+        expect(inFlight(ctx.om).size).toBe(0)
+      })
     })
 
     it('c8. only the in-flight snapshot sees a record that becomes durable while the dedup read is held', async () => {
@@ -691,76 +747,82 @@ describe('ObservationalMemory restart (MC-03a)', () => {
   })
 
   describe('d. retention and handoff', () => {
+    // Observer-owned writer: default capacity maxPending 100; capturing the 101st
+    // captured record evicts the 20 oldest (down to 80, then the new one: 81).
+    // Candidate retention also defaults to 100, so every observer raises it.
+    const many = { candidateRetention: { maxRecords: 1000 } }
+    const markersUpTo = (n: number) => Array.from({ length: n }, (_, i) => `M${i + 1}`)
+
+    async function drainCandidates(h: Awaited<ReturnType<typeof harness>>): Promise<void> {
+      for (let pass = 0; pass < 10; pass++) {
+        if ((await h.durableCandidates()).length === 0) return
+        await h.confirmAll(h.start({ observerThreshold: 1, ...many }))
+      }
+      throw new Error('durable candidates not drained')
+    }
+
     it('keeps an obligation whose captured record the writer evicted; the fact ends stored once', async () => {
       const h = await harness()
       h.model.confidence = 0.5 // stays captured, so the writer may evict it
       const flaky = new FlakyCandidateStore(h.candidateStore)
       flaky.failing = record => record.value['text'] === FACTS['M1']
-      const smallWriter = new StagedWriter({ maxPending: 1, autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
-      let om = h.start({ observerThreshold: 2, candidateStore: flaky, stagedWriter: smallWriter })
-      await om.observe(turn(1)) // A's write fails: batch kept
-      const retry = await om.observe(turn(2)) // A skipped as a duplicate; capturing B evicts A
+      const om = h.start({ observerThreshold: 1, candidateStore: flaky, ...many })
+      await om.observe(userTurns(1, 1)) // A's write fails: batch kept
+      const retry = await om.observe(userTurns(2, 101)) // A skipped as a duplicate; 100 captures evict 20
       expect(retry!.skippedDuplicates).toBe(1)
+      expect(writerRecords(om)).toHaveLength(81)
       expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
       await persistBoundary(om)
-      expect(recordIds(await h.ctl.bufferRecord())).toEqual(['u1', 'a1', 'u2', 'a2'])
+      expect(recordIds(await h.ctl.bufferRecord())).toHaveLength(101)
 
       flaky.failing = null
-      await om.observe([]) // retry persists A from the retained copy
+      const recovered = await om.observe([]) // retry persists A from the retained copy
+      expect(recovered!.skippedDuplicates).toBe(101)
       await persistBoundary(om)
       expect(await h.ctl.bufferRecord()).toBeNull()
-      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), markersUpTo(101))
 
       // (b) replay after the obligation was recovered: A is durable but not staged.
-      expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
-      const replay = await om.observe(turn(1))
+      const replay = await om.observe(userTurns(1, 1))
       expect(replay!.skippedDuplicates).toBe(1)
       expect(replay!.staged).toEqual([])
-      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
 
-      om = h.start({ observerThreshold: 2 }) // restart
-      await h.confirmAll(om)
-      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+      await drainCandidates(h)
+      assertFactsExactlyOnce(await h.stored(), markersUpTo(101))
     })
 
     it('(a) a candidate persisted and then evicted from the writer is not staged again on replay', async () => {
       const h = await harness()
       h.model.confidence = 0.5
-      const smallWriter = new StagedWriter({ maxPending: 1, autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
-      let om = h.start({ observerThreshold: 2, stagedWriter: smallWriter })
-      await om.observe(turn(1)) // F1 persisted
-      await om.observe(turn(2)) // F2 persisted; capturing F2 evicts F1
+      const om = h.start({ observerThreshold: 1, ...many })
+      await om.observe(userTurns(1, 101)) // all persisted; the 101st capture evicts F1..F20
+      expect(writerRecords(om)).toHaveLength(81)
       expect(recordsWithFact(writerRecords(om), 'M1')).toEqual([])
-      const replay = await om.observe(turn(1))
+      const replay = await om.observe(userTurns(1, 1))
       expect(replay!.skippedDuplicates).toBe(1)
       expect(replay!.staged).toEqual([])
-      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), markersUpTo(101))
 
-      om = h.start({ observerThreshold: 2 }) // restart
-      await h.confirmAll(om)
-      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+      await drainCandidates(h)
+      assertFactsExactlyOnce(await h.stored(), markersUpTo(101))
     })
 
     it('(c) restoring more candidates than the writer holds still dedups every durable one', async () => {
       const h = await harness()
       h.model.confidence = 0.5
-      const seeder = h.start({ observerThreshold: 4 })
-      await seeder.observe(turn(1))
-      await seeder.observe(turn(2)) // M1, M2 persisted as captured candidates
+      const seeder = h.start({ observerThreshold: 1, ...many })
+      await seeder.observe(userTurns(1, 101)) // 101 captured candidates persisted
 
-      const smallWriter = new StagedWriter({ maxPending: 1, autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
-      let om = h.start({ observerThreshold: 4, stagedWriter: smallWriter }) // restart
+      const om = h.start({ observerThreshold: 1, ...many }) // restart
       await om.listPendingObservationCandidates()
-      expect(writerRecords(om)).toHaveLength(1) // capacity 1: one restored record was evicted
-      await om.observe(turn(1))
-      const replay = await om.observe(turn(2))
-      expect(replay!.skippedDuplicates).toBe(2)
+      expect(writerRecords(om)).toHaveLength(81) // restore-time eviction of 20
+      const replay = await om.observe(userTurns(1, 101))
+      expect(replay!.skippedDuplicates).toBe(101)
       expect(replay!.staged).toEqual([])
-      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), ['M1', 'M2'])
+      assertFactsExactlyOnce((await h.durableCandidates()).map(record => record.value), markersUpTo(101))
 
-      om = h.start({ observerThreshold: 4 }) // restart
-      await h.confirmAll(om)
-      assertFactsExactlyOnce(await h.stored(), ['M1', 'M2'])
+      await drainCandidates(h)
+      assertFactsExactlyOnce(await h.stored(), markersUpTo(101))
     })
 
     it('deletes the record after a processed run with no arrivals', async () => {
@@ -1126,6 +1188,20 @@ describe('ObservationalMemory restart (MC-03a)', () => {
           scopeKeys: ['tenantId', 'userId'],
         }),
       })).toThrow(/observation namespace/)
+    })
+
+    it('rejects a caller-supplied stagedWriter with pendingBuffer (A1)', async () => {
+      const h = await harness()
+      expect(() => h.start({ stagedWriter: new StagedWriter() })).toThrow(/stagedWriter/)
+    })
+
+    it('still accepts a caller-supplied stagedWriter without pendingBuffer', async () => {
+      const h = await harness()
+      const writer = new StagedWriter({ autoPromoteThreshold: 0.7, autoConfirmThreshold: 1.01 })
+      const om = h.start({ pendingBuffer: undefined, stagedWriter: writer, observerThreshold: 2 })
+      const result = await om.observe(turn(1))
+      assertFactsExactlyOnce(result!.staged.map(record => record.value), ['M1'])
+      expect(recordsWithFact(writer.getAll(), 'M1')).toHaveLength(1)
     })
 
     it('without pendingBuffer the buffer API is inert and nothing reaches the buffer namespace', async () => {

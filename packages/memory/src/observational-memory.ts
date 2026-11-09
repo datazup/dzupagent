@@ -352,6 +352,13 @@ export class ObservationalMemory {
           'ObservationalMemory: pendingBuffer requires observationWriteMode "candidate-first" and a candidateStore',
         )
       }
+      if (config.stagedWriter) {
+        // Amendment 1 (A1): every staged record must enter through this
+        // instance, so its candidate-persistence state is known.
+        throw new Error(
+          'ObservationalMemory: pendingBuffer requires the observer\'s own staged writer; do not pass stagedWriter',
+        )
+      }
       if (typeof config.candidateStore.loadWithStatus !== 'function') {
         throw new Error(
           'ObservationalMemory: pendingBuffer requires a candidateStore that implements loadWithStatus',
@@ -1194,10 +1201,17 @@ export class ObservationalMemory {
         candidates.status === 'loaded' ? candidates.records.map(record => record.key) : [],
       )
       const durableObservationKeys = new Set(durable.map(item => item.key))
-      for (const record of this.stagedWriter?.getAll() ?? []) {
+      // Amendment 1 (A2): an in-flight record is not durable either; moving it
+      // out of the writer never resolves its obligation.
+      const inFlightCopies = [...this.inFlightFlushes.values()].map(record => ({
+        ...record,
+        scope: { ...record.scope },
+        value: { ...record.value },
+      }))
+      for (const record of [...(this.stagedWriter?.getAll() ?? []), ...inFlightCopies]) {
         if (record.stage === 'rejected') continue
         if (durableCandidateKeys.has(record.key) || durableObservationKeys.has(record.key)) continue
-        if (this.inFlightFlushes.has(record.key) || this.candidateObligations.has(record.key)) continue
+        if (this.candidateObligations.has(record.key)) continue
         this.candidateObligations.set(record.key, record)
       }
       for (const item of durable) durableKeys.add(item.key)
