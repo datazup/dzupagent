@@ -55,6 +55,16 @@ import {
   createObservationConfirmationReceipt,
   observationCandidateValueDigest,
 } from './observation-candidate-store.js'
+import type {
+  ObservationBufferLoadResult,
+  ObservationBufferRecord,
+  ObservationBufferStore,
+} from './observation-buffer-store.js'
+import {
+  OBSERVATION_BUFFER_SCHEMA,
+  deserializeObservationMessage,
+  serializeObservationMessage,
+} from './observation-buffer-store.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +137,27 @@ export interface ObservationalMemoryConfig {
    */
   onObservationLifecycleEvent?:
     ((event: ObservationLifecycleEvent) => void) | undefined
+  /**
+   * Optional restart-safe store for the observer backlog: messages fed since
+   * the last processed run, including a failed or unverified batch. The
+   * record is kept until a run is processed (a verified durable candidate
+   * handoff) and never exceeds the buffer cap. It holds raw conversation text.
+   *
+   * Requires `observationWriteMode: 'candidate-first'` and a `candidateStore`
+   * implementing `loadWithStatus`. Without it, behaviour is unchanged.
+   */
+  pendingBuffer?: ObservationBufferStore | undefined
+}
+
+/**
+ * Result of {@link ObservationalMemory.whenBufferPersisted}. `persisted` is
+ * true when the durable backlog record matches the in-memory backlog.
+ */
+export interface BufferPersistResult {
+  status: 'disabled' | 'persisted' | 'write-failed' | 'restore-pending'
+  persisted: boolean
+  /** Revision of the last record state the store accepted. */
+  revision: number
 }
 
 export type ObservationLifecycleEventType =
@@ -142,6 +173,12 @@ export type ObservationLifecycleEventType =
    * of messages kept for the retry; `reason` names the failure class only.
    */
   | 'observation:observer:failed'
+  /** `pendingBuffer` only: a backlog write or delete failed (retried on the next change). */
+  | 'observation:buffer:persistence-failed'
+  /** `pendingBuffer` only: the backlog could not be read; restoration stays pending. */
+  | 'observation:buffer:restore-failed'
+  /** `pendingBuffer` only: candidate or durable-memory state could not be read. */
+  | 'observation:state:read-failed'
 
 export interface ObservationLifecycleEvent {
   schema: 'dzupagent/observation-lifecycle-event/v1'
@@ -224,6 +261,17 @@ function hasValidObservationEvidence(value: Record<string, unknown>): boolean {
 /** Jaccard threshold above which we consider two observations duplicates */
 const DEDUP_THRESHOLD = 0.7
 
+/**
+ * `pendingBuffer` mode: state the observer needs could not be read, so
+ * "empty" would be a guess. The run stages nothing and keeps its batch.
+ */
+class ObservationStateReadError extends Error {
+  override readonly name = 'ObservationStateReadError'
+  constructor(readonly readKind: 'candidate-restore' | 'dedup-read') {
+    super(`observation state read failed (${readKind})`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ObservationalMemory
 // ---------------------------------------------------------------------------
@@ -260,8 +308,69 @@ export class ObservationalMemory {
   private candidatesInitialized = false
   private candidateInitialization: Promise<void> | null = null
   private observationSequence = 0
+  /**
+   * Confirmed records removed from the writer by `flushConfirmed()` whose
+   * durable write and receipt are not yet verified. Read only with
+   * `pendingBuffer`, where dedup includes them.
+   */
+  private readonly inFlightFlushes = new Map<string, StagedRecord>()
+
+  // ---------- pendingBuffer state (inert without config.pendingBuffer) -----
+  private readonly pendingBuffer: ObservationBufferStore | null
+  /** Serial queue of durable buffer operations, in call order. */
+  private bufferQueue: Promise<void> = Promise.resolve()
+  /** The batch detached by the running observer, or null. */
+  private liveBatch: BaseMessage[] | null = null
+  private bufferRestored = false
+  private bufferRestoreInFlight: Promise<boolean> | null = null
+  /** reset() ran while restoration was pending: the durable record is stale. */
+  private bufferDiscardOnRestore = false
+  /** A change happened while no write could be queued (restoration pending). */
+  private bufferDirty = false
+  /** Revision of the newest queued record state. */
+  private bufferRevision = 0
+  /** Revision of the newest record state the store accepted. */
+  private bufferAppliedRevision = 0
+  /** Last candidate-store failure in loadPersistedCandidates (pendingBuffer only). */
+  private candidateLoadFailed = false
+  /**
+   * Staged candidates whose last putCandidateState returned false or threw,
+   * with a copy of the record so the retry survives writer eviction. Cleared
+   * only by a verified write or a verified durable flush.
+   */
+  private readonly candidateObligations = new Map<string, StagedRecord>()
+  /** Candidate keys loaded from the candidate store (pendingBuffer only). */
+  private readonly restoredCandidateKeys = new Set<string>()
 
   constructor(private readonly config: ObservationalMemoryConfig) {
+    if (config.pendingBuffer) {
+      if (
+        (config.observationWriteMode ?? 'direct') !== 'candidate-first'
+        || !config.candidateStore
+      ) {
+        throw new Error(
+          'ObservationalMemory: pendingBuffer requires observationWriteMode "candidate-first" and a candidateStore',
+        )
+      }
+      if (config.stagedWriter) {
+        // Amendment 1 (A1): every staged record must enter through this
+        // instance, so its candidate-persistence state is known.
+        throw new Error(
+          'ObservationalMemory: pendingBuffer requires the observer\'s own staged writer; do not pass stagedWriter',
+        )
+      }
+      if (typeof config.candidateStore.loadWithStatus !== 'function') {
+        throw new Error(
+          'ObservationalMemory: pendingBuffer requires a candidateStore that implements loadWithStatus',
+        )
+      }
+      if (config.pendingBuffer.namespace === config.namespace) {
+        throw new Error(
+          'ObservationalMemory: pendingBuffer must not use the observation namespace',
+        )
+      }
+    }
+    this.pendingBuffer = config.pendingBuffer ?? null
     this.observerThreshold = config.observerThreshold ?? 15
     this.reflectorThreshold = config.reflectorThreshold ?? 50
     this.reflectorTargetCount = config.reflectorTargetCount ?? 30
@@ -298,6 +407,7 @@ export class ObservationalMemory {
    * Returns null if threshold not reached (no-op).
    */
   async observe(messages: BaseMessage[]): Promise<ObserverResult | null> {
+    if (this.pendingBuffer) return this.observeWithPendingBuffer(messages)
     this.messagesSinceLastRun += messages.length
     this.bufferMessages(this.pendingMessages.concat(messages))
 
@@ -334,7 +444,7 @@ export class ObservationalMemory {
     this.pendingMessages = []
     this.observerRunning = true
     try {
-      const result = await this.runObserver(batch)
+      const { result } = await this.runObserver(batch)
       if (epoch === this.bufferEpoch) {
         this.messagesSinceLastRun = Math.max(0, this.messagesSinceLastRun - batchCount)
       }
@@ -353,6 +463,124 @@ export class ObservationalMemory {
       return null
     } finally {
       this.observerRunning = false
+    }
+  }
+
+  /**
+   * `observe()` with a persisted backlog. Same trigger, debounce and
+   * concurrency rules; additionally restores before first use, persists every
+   * change through the serial buffer queue, and keeps the batch until the run
+   * is processed (a verified durable candidate handoff).
+   */
+  private async observeWithPendingBuffer(
+    messages: BaseMessage[],
+  ): Promise<ObserverResult | null> {
+    this.messagesSinceLastRun += messages.length
+    this.bufferMessages(this.pendingMessages.concat(messages))
+    if (messages.length > 0 || this.bufferAppliedRevision !== this.bufferRevision) {
+      this.scheduleBufferWrite()
+    }
+
+    // The observer never runs while restoration is pending, so a batch can
+    // never exclude unrestored messages.
+    if (!await this.ensureBufferRestored()) return null
+
+    if (this.messagesSinceLastRun < this.observerThreshold) {
+      return null
+    }
+    if (
+      this.stats.lastObserverRun !== null &&
+      Date.now() - this.stats.lastObserverRun < this.observerDebounceMs
+    ) {
+      return null
+    }
+    if (
+      this.lastFailedObserverRun !== null &&
+      Date.now() - this.lastFailedObserverRun < this.observerDebounceMs
+    ) {
+      return null
+    }
+    if (this.observerRunning) {
+      return null
+    }
+
+    const batch = this.pendingMessages
+    const batchCount = this.messagesSinceLastRun
+    const epoch = this.bufferEpoch
+    this.pendingMessages = []
+    // The durable record keeps the live batch plus arrivals until processed.
+    this.liveBatch = batch
+    this.observerRunning = true
+    try {
+      const { result, verified } = await this.runObserver(batch)
+      if (epoch === this.bufferEpoch) {
+        if (verified) {
+          this.messagesSinceLastRun = Math.max(0, this.messagesSinceLastRun - batchCount)
+        } else {
+          // An unverified handoff is a failed run for the buffer.
+          this.bufferMessages(batch.concat(this.pendingMessages))
+          this.lastFailedObserverRun = Date.now()
+        }
+      }
+      if (!verified) {
+        this.emitLifecycleCount('observation:observer:failed', batch.length, 'handoff-unverified')
+      }
+      return result
+    } catch (error: unknown) {
+      if (epoch === this.bufferEpoch) {
+        this.bufferMessages(batch.concat(this.pendingMessages))
+        this.lastFailedObserverRun = Date.now()
+      }
+      const reason = error instanceof ObservationExtractionError
+        ? `extraction-failed:${error.errorClass}`
+        : error instanceof ObservationStateReadError
+          ? `state-read-failed:${error.readKind}`
+          : `observer-failed:${error instanceof Error ? error.name : typeof error}`
+      this.emitLifecycleCount('observation:observer:failed', batch.length, reason)
+      return null
+    } finally {
+      this.observerRunning = false
+      this.liveBatch = null
+      this.scheduleBufferWrite()
+    }
+  }
+
+  /**
+   * Restore the persisted backlog (`pendingBuffer` only). Shares one restore
+   * with concurrent first `observe()` calls. Resolves `true` once restoration
+   * is complete; `false` means the store could not be read and the next call
+   * retries. Without `pendingBuffer` it resolves `true`.
+   */
+  async restorePendingMessages(): Promise<boolean> {
+    return this.ensureBufferRestored()
+  }
+
+  /**
+   * Resolve once every queued backlog operation has run, reporting whether
+   * the durable record now matches the in-memory backlog.
+   */
+  async whenBufferPersisted(): Promise<BufferPersistResult> {
+    if (!this.pendingBuffer) {
+      return { status: 'disabled', persisted: false, revision: 0 }
+    }
+    let tail: Promise<void>
+    do {
+      tail = this.bufferQueue
+      await tail
+    } while (tail !== this.bufferQueue)
+    if (!this.bufferRestored) {
+      return {
+        status: 'restore-pending',
+        persisted: false,
+        revision: this.bufferAppliedRevision,
+      }
+    }
+    const persisted = !this.bufferDirty
+      && this.bufferAppliedRevision === this.bufferRevision
+    return {
+      status: persisted ? 'persisted' : 'write-failed',
+      persisted,
+      revision: this.bufferAppliedRevision,
     }
   }
 
@@ -412,7 +640,8 @@ export class ObservationalMemory {
     this.candidateInitialization = this.loadPersistedCandidates()
     try {
       await this.candidateInitialization
-      this.candidatesInitialized = true
+      // pendingBuffer mode: a failed candidate read stays retryable.
+      if (!this.candidateLoadFailed) this.candidatesInitialized = true
     } finally {
       this.candidateInitialization = null
     }
@@ -516,59 +745,94 @@ export class ObservationalMemory {
   async flushConfirmedObservations(): Promise<StagedRecord[]> {
     await this.initializeObservationCandidates()
     const confirmed = this.stagedWriter?.flushConfirmed() ?? []
+    // Removed from the writer but not yet durable: keep them visible to dedup.
+    for (const record of confirmed) this.inFlightFlushes.set(record.key, record)
     const persisted: StagedRecord[] = []
-    for (const record of confirmed) {
-      const priorReceipt = await this.candidateStore?.getReceipt(
-        record.namespace,
-        record.scope,
-        record.key,
-      )
-      if (
-        priorReceipt
-        && priorReceipt.valueDigest === observationCandidateValueDigest(record)
-      ) {
-        persisted.push(record)
-        await this.candidateStore?.remove(record)
-        continue
-      }
-
-      let stored = false
-      try {
-        stored = await this.persistObservation(
+    try {
+      for (const record of confirmed) {
+        const priorReceipt = await this.candidateStore?.getReceipt(
+          record.namespace,
+          record.scope,
           record.key,
-          record.value,
-          record.confidence,
-          true,
         )
-      } catch {
-        // Reported below through the same verified-persistence failure path.
-      }
-      if (stored) {
-        if (this.candidateStore) {
-          const receipt = createObservationConfirmationReceipt(record)
-          if (!await this.putConfirmationReceipt(receipt)) {
-            this.emitLifecycle(
-              'observation:candidate:persistence-failed',
-              record,
-              'confirmation receipt could not be persisted',
-            )
-            await this.restoreConfirmedObservation(record)
-            continue
-          }
-          await this.candidateStore.remove(record)
+        if (
+          priorReceipt
+          && priorReceipt.valueDigest === observationCandidateValueDigest(record)
+        ) {
+          this.releaseInFlight(record)
+          this.candidateObligations.delete(record.key)
+          persisted.push(record)
+          await this.candidateStore?.remove(record)
+          continue
         }
-        persisted.push(record)
-      } else {
-        this.emitLifecycle(
-          'observation:candidate:persistence-failed',
-          record,
-          'confirmed observation write could not be verified',
-        )
-        await this.restoreConfirmedObservation(record)
+
+        let stored = false
+        try {
+          stored = await this.persistObservation(
+            record.key,
+            record.value,
+            record.confidence,
+            true,
+          )
+        } catch {
+          // Reported below through the same verified-persistence failure path.
+        }
+        if (stored) {
+          if (this.candidateStore) {
+            const receipt = createObservationConfirmationReceipt(record)
+            if (!await this.putConfirmationReceipt(receipt)) {
+              this.emitLifecycle(
+                'observation:candidate:persistence-failed',
+                record,
+                'confirmation receipt could not be persisted',
+              )
+              await this.restoreConfirmedObservation(record)
+              continue
+            }
+            // Write and receipt verified: durable from here on.
+            this.releaseInFlight(record)
+            this.candidateObligations.delete(record.key)
+            await this.candidateStore.remove(record)
+          }
+          this.releaseInFlight(record)
+          persisted.push(record)
+        } else {
+          this.emitLifecycle(
+            'observation:candidate:persistence-failed',
+            record,
+            'confirmed observation write could not be verified',
+          )
+          await this.restoreConfirmedObservation(record)
+        }
       }
+    } catch (error: unknown) {
+      // pendingBuffer mode: an exceptional exit (a receipt read or cleanup
+      // rejection) must not hide records whose persistence is unverified.
+      if (this.pendingBuffer) {
+        for (const record of confirmed) {
+          if (this.inFlightFlushes.get(record.key) !== record) continue
+          this.stagedWriter?.restore(record)
+          this.releaseInFlight(record)
+          this.emitLifecycle(
+            'observation:candidate:restored',
+            record,
+            'confirmed observation flush aborted; will be retried',
+          )
+        }
+      }
+      throw error
+    } finally {
+      for (const record of confirmed) this.releaseInFlight(record)
     }
     this.stats.totalObservations += persisted.length
     return persisted
+  }
+
+  /** Drop `record` from the in-flight set unless a newer flush owns the key. */
+  private releaseInFlight(record: StagedRecord): void {
+    if (this.inFlightFlushes.get(record.key) === record) {
+      this.inFlightFlushes.delete(record.key)
+    }
   }
 
   /** Get all stored observations */
@@ -620,9 +884,210 @@ export class ObservationalMemory {
       lastObserverRun: null,
       lastReflectorRun: null,
     }
+    if (this.pendingBuffer) {
+      // The epoch bump above fences queued writes and an outstanding restore.
+      this.liveBatch = null
+      if (!this.bufferRestored) this.bufferDiscardOnRestore = true
+      // Queues the delete, or holds it until a restore succeeds.
+      this.scheduleBufferWrite()
+    }
   }
 
   // ---------- Private --------------------------------------------------------
+
+  /** Chain one durable buffer operation after every earlier one. */
+  private enqueueBufferOp<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.bufferQueue.then(op)
+    this.bufferQueue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  /**
+   * The backlog the durable record should hold now: the live batch followed
+   * by the arrivals (or the pending messages), oldest dropped beyond the cap,
+   * with the count lowered by the number dropped, as a put-back would.
+   */
+  private bufferSnapshot(): { messages: BaseMessage[]; count: number } {
+    const backlog = this.liveBatch
+      ? this.liveBatch.concat(this.pendingMessages)
+      : this.pendingMessages
+    const dropped = backlog.length - this.bufferCap()
+    return dropped > 0
+      ? {
+          messages: backlog.slice(dropped),
+          count: Math.max(0, this.messagesSinceLastRun - dropped),
+        }
+      : { messages: backlog, count: this.messagesSinceLastRun }
+  }
+
+  private bufferCap(): number {
+    return Math.max(200, 4 * this.observerThreshold)
+  }
+
+  /**
+   * Queue a write of the current backlog snapshot (a delete when it is
+   * empty). While restoration is pending nothing reaches the durable record;
+   * the change is remembered and written once a restore succeeds.
+   */
+  private scheduleBufferWrite(): void {
+    const store = this.pendingBuffer
+    if (!store) return
+    if (!this.bufferRestored) {
+      this.bufferDirty = true
+      return
+    }
+    this.bufferDirty = false
+    const epoch = this.bufferEpoch
+    const revision = ++this.bufferRevision
+    const snapshot = this.bufferSnapshot()
+    let record: ObservationBufferRecord | null = null
+    let serializationFailure: string | null = null
+    if (snapshot.messages.length > 0) {
+      try {
+        record = {
+          schema: OBSERVATION_BUFFER_SCHEMA,
+          targetNamespace: this.config.namespace,
+          scope: { ...this.config.scope },
+          messages: snapshot.messages.map(serializeObservationMessage),
+          messagesSinceLastRun: snapshot.count,
+          revision,
+          updatedAt: Date.now(),
+        }
+      } catch (error: unknown) {
+        serializationFailure = error instanceof Error ? error.name : typeof error
+      }
+    }
+    const size = snapshot.messages.length
+    void this.enqueueBufferOp(async () => {
+      // Dropped before it runs: reset() cleared this backlog.
+      if (epoch !== this.bufferEpoch) return
+      // A newer full snapshot is queued behind this one.
+      if (revision < this.bufferRevision) return
+      let ok = false
+      let reason: string
+      if (serializationFailure) {
+        reason = `unserializable-message:${serializationFailure}`
+      } else {
+        try {
+          ok = record
+            ? await store.write(record)
+            : await store.delete(this.config.namespace, this.config.scope)
+        } catch {
+          ok = false
+        }
+        reason = record ? 'buffer-write-failed' : 'buffer-delete-failed'
+      }
+      if (ok) {
+        this.bufferAppliedRevision = Math.max(this.bufferAppliedRevision, revision)
+      } else {
+        this.emitLifecycleCount('observation:buffer:persistence-failed', size, reason)
+      }
+    })
+  }
+
+  /** One shared restore on the buffer queue; `true` once restoration is complete. */
+  private ensureBufferRestored(): Promise<boolean> {
+    const store = this.pendingBuffer
+    if (!store || this.bufferRestored) return Promise.resolve(true)
+    if (this.bufferRestoreInFlight) return this.bufferRestoreInFlight
+    const epoch = this.bufferEpoch
+    const restore = this.enqueueBufferOp(async (): Promise<boolean> => {
+      let result: ObservationBufferLoadResult
+      try {
+        result = await store.load(this.config.namespace, this.config.scope)
+      } catch (error: unknown) {
+        result = {
+          status: 'failed',
+          errorClass: error instanceof Error ? error.name : typeof error,
+        }
+      }
+      let restored: BaseMessage[] = []
+      if (result.status === 'loaded') {
+        try {
+          restored = result.record.messages.map(deserializeObservationMessage)
+        } catch {
+          result = { status: 'failed', errorClass: 'invalid-record' }
+        }
+      }
+      this.bufferRestoreInFlight = null
+      if (result.status === 'failed') {
+        this.emitLifecycleCount(
+          'observation:buffer:restore-failed',
+          this.pendingMessages.length,
+          `buffer-restore-failed:${result.errorClass}`,
+        )
+        return false
+      }
+
+      this.bufferRestored = true
+      if (result.status === 'loaded') {
+        // The store now holds exactly this record.
+        this.bufferRevision = Math.max(this.bufferRevision, result.record.revision)
+        this.bufferAppliedRevision = this.bufferRevision
+        if (epoch === this.bufferEpoch && !this.bufferDiscardOnRestore) {
+          // Restored backlog and count go in front of messages observed since.
+          this.messagesSinceLastRun += result.record.messagesSinceLastRun
+          this.bufferMessages(restored.concat(this.pendingMessages))
+          if (this.bufferSnapshot().messages.length !== restored.length) {
+            this.bufferDirty = true
+          }
+        } else {
+          // reset() fenced this result; the held delete is now released.
+          this.bufferDirty = true
+        }
+      }
+      this.bufferDiscardOnRestore = false
+      if (this.bufferDirty) this.scheduleBufferWrite()
+      return true
+    })
+    this.bufferRestoreInFlight = restore
+    return restore
+  }
+
+  /** Texts of every non-terminal staged record plus in-flight flushes (sync). */
+  private stagedDedupTexts(): string[] {
+    const texts: string[] = []
+    for (const record of this.stagedWriter?.getAll() ?? []) {
+      if (record.stage === 'rejected') continue
+      if (typeof record.value['text'] === 'string') texts.push(record.value['text'])
+    }
+    for (const record of this.inFlightFlushes.values()) {
+      if (typeof record.value['text'] === 'string') texts.push(record.value['text'])
+    }
+    // Unresolved obligations stay non-terminal even after writer eviction.
+    for (const record of this.candidateObligations.values()) {
+      if (record.stage === 'rejected') continue
+      if (typeof record.value['text'] === 'string') texts.push(record.value['text'])
+    }
+    return texts
+  }
+
+  /** pendingBuffer mode: never reuse a key that is staged, in flight, restored or durable. */
+  private isObservationKeyOccupied(key: string, durableKeys: Set<string>): boolean {
+    return this.stagedWriter?.get(key) !== undefined
+      || this.inFlightFlushes.has(key)
+      || this.candidateObligations.has(key)
+      || this.restoredCandidateKeys.has(key)
+      || durableKeys.has(key)
+  }
+
+  /**
+   * Retry every unresolved candidate persistence obligation, with the live
+   * record when it is still staged or in flight, else with the retained copy
+   * (the writer may have evicted it). Resolves `true` when none remains.
+   */
+  private async retryCandidateObligations(): Promise<boolean> {
+    for (const [key, retained] of [...this.candidateObligations]) {
+      const record = this.stagedWriter?.get(key)
+        ?? this.inFlightFlushes.get(key)
+        ?? retained
+      await this.putCandidateState(
+        record,
+        'candidate state retry could not be persisted',
+      )
+    }
+    return this.candidateObligations.size === 0
+  }
 
   /** Store `messages` as the pending buffer, dropping the oldest beyond the cap. */
   private bufferMessages(messages: BaseMessage[]): void {
@@ -640,8 +1105,20 @@ export class ObservationalMemory {
     }
   }
 
-  private async runObserver(messages: BaseMessage[]): Promise<ObserverResult> {
+  /**
+   * `verified` is always true without `pendingBuffer`. With it, it is true
+   * only when every candidate this run staged was persisted and no candidate
+   * persistence obligation remains after the retry.
+   */
+  private async runObserver(
+    messages: BaseMessage[],
+  ): Promise<{ result: ObserverResult; verified: boolean }> {
     await this.initializeObservationCandidates()
+    const persistedBuffer = this.pendingBuffer !== null
+    if (persistedBuffer && !this.candidatesInitialized) {
+      // Unknown candidate state: staging now could duplicate a candidate.
+      throw new ObservationStateReadError('candidate-restore')
+    }
     const extractor = new ObservationExtractor({
       model: this.config.model,
       minMessages: 1,
@@ -671,20 +1148,97 @@ export class ObservationalMemory {
     }
     const observations = extraction.observations
 
-    // Load existing observations for dedup
-    const existing = await this.config.memoryService.get(
-      this.config.namespace,
-      this.config.scope,
-    )
+    let existingTexts: string[]
+    const durableKeys = new Set<string>()
+    if (persistedBuffer) {
+      // Snapshot staged and in-flight texts before awaiting the durable read,
+      // so a record that becomes durable during the read is seen in one of
+      // the two.
+      const stagedTexts = this.stagedDedupTexts()
+      let durable: Awaited<ReturnType<typeof searchAllInNamespace>>
+      try {
+        durable = await searchAllInNamespace(
+          this.config.memoryService.getStore(),
+          this.config.memoryService.getNamespaceTuple(
+            this.config.namespace,
+            this.config.scope,
+          ),
+        )
+      } catch {
+        this.emitLifecycleCount('observation:state:read-failed', messages.length, 'dedup-read')
+        throw new ObservationStateReadError('dedup-read')
+      }
+      // Durable non-terminal candidates stay comparable after writer eviction.
+      const candidateTexts: string[] = []
+      let candidates: Awaited<ReturnType<NonNullable<ObservationCandidateStore['loadWithStatus']>>>
+      try {
+        candidates = await this.candidateStore!.loadWithStatus!(
+          this.config.namespace,
+          this.config.scope,
+        )
+      } catch (error: unknown) {
+        candidates = {
+          status: 'failed',
+          errorClass: error instanceof Error ? error.name : typeof error,
+        }
+      }
+      if (candidates.status === 'failed') {
+        this.emitLifecycleCount('observation:state:read-failed', messages.length, 'candidate-dedup-read')
+        throw new ObservationStateReadError('candidate-restore')
+      }
+      if (candidates.status === 'loaded') {
+        for (const record of candidates.records) {
+          durableKeys.add(record.key)
+          if (record.stage === 'rejected') continue
+          if (typeof record.value['text'] === 'string') candidateTexts.push(record.value['text'])
+        }
+      }
+      stagedTexts.push(...candidateTexts)
+      // A staged record that is neither a durable candidate nor a durable
+      // observation cannot discharge a batch by matching as a duplicate:
+      // track it as an unresolved obligation so the run must persist it.
+      const durableCandidateKeys = new Set(
+        candidates.status === 'loaded' ? candidates.records.map(record => record.key) : [],
+      )
+      const durableObservationKeys = new Set(durable.map(item => item.key))
+      // Amendment 1 (A2): an in-flight record is not durable either; moving it
+      // out of the writer never resolves its obligation.
+      const inFlightCopies = [...this.inFlightFlushes.values()].map(record => ({
+        ...record,
+        scope: { ...record.scope },
+        value: { ...record.value },
+      }))
+      for (const record of [...(this.stagedWriter?.getAll() ?? []), ...inFlightCopies]) {
+        if (record.stage === 'rejected') continue
+        if (durableCandidateKeys.has(record.key) || durableObservationKeys.has(record.key)) continue
+        if (this.candidateObligations.has(record.key)) continue
+        this.candidateObligations.set(record.key, record)
+      }
+      for (const item of durable) durableKeys.add(item.key)
+      existingTexts = durable
+        .map(item => {
+          const text = (item.value as Record<string, unknown>)['text']
+          return typeof text === 'string' ? text : ''
+        })
+        .filter(Boolean)
+        .concat(stagedTexts)
+    } else {
+      // Load existing observations for dedup
+      const existing = await this.config.memoryService.get(
+        this.config.namespace,
+        this.config.scope,
+      )
 
-    const existingTexts = existing
-      .map(r => (typeof r['text'] === 'string' ? r['text'] : ''))
-      .filter(Boolean)
-    for (const record of this.stagedWriter?.getPending() ?? []) {
-      if (typeof record.value['text'] === 'string') {
-        existingTexts.push(record.value['text'])
+      existingTexts = existing
+        .map(r => (typeof r['text'] === 'string' ? r['text'] : ''))
+        .filter(Boolean)
+      for (const record of this.stagedWriter?.getPending() ?? []) {
+        if (typeof record.value['text'] === 'string') {
+          existingTexts.push(record.value['text'])
+        }
       }
     }
+    let stagedPersistFailures = 0
 
     const added: Observation[] = []
     const persisted: Observation[] = []
@@ -714,7 +1268,12 @@ export class ObservationalMemory {
         continue
       }
 
-      const key = `obs-${Date.now()}-${this.observationSequence++}`
+      let key = `obs-${Date.now()}-${this.observationSequence++}`
+      // pendingBuffer mode: a restart in the same millisecond restarts the
+      // sequence at 0, so skip keys that are already occupied.
+      while (persistedBuffer && this.isObservationKeyOccupied(key, durableKeys)) {
+        key = `obs-${Date.now()}-${this.observationSequence++}`
+      }
       const value = {
         text: obs.text,
         category: obs.category,
@@ -751,10 +1310,12 @@ export class ObservationalMemory {
         if (candidate.stage === 'confirmed') {
           this.emitLifecycle('observation:candidate:confirmed', candidate)
         }
-        await this.putCandidateState(
+        if (!await this.putCandidateState(
           candidate,
           'captured candidate state could not be persisted',
-        )
+        )) {
+          stagedPersistFailures++
+        }
         observationByKey.set(key, obs)
         if (candidate.stage !== 'confirmed') {
           staged.push(candidate)
@@ -776,6 +1337,14 @@ export class ObservationalMemory {
       this.stats.totalObservations += persisted.length
     }
 
+    let verified = true
+    if (persistedBuffer) {
+      // Includes candidates this extraction matched as duplicates: a
+      // duplicate discharges the batch only when its match is durable.
+      const obligationsResolved = await this.retryCandidateObligations()
+      verified = stagedPersistFailures === 0 && obligationsResolved
+    }
+
     this.stats.lastObserverRun = Date.now()
     this.stats.observerRuns++
 
@@ -791,12 +1360,15 @@ export class ObservationalMemory {
     }
 
     return {
-      extracted: added,
-      persisted,
-      staged,
-      rejected,
-      skippedDuplicates: skipped,
-      triggeredReflector,
+      result: {
+        extracted: added,
+        persisted,
+        staged,
+        rejected,
+        skippedDuplicates: skipped,
+        triggeredReflector,
+      },
+      verified,
     }
   }
 
@@ -837,6 +1409,8 @@ export class ObservationalMemory {
     if (!writer) return
 
     writer.restore(record)
+    // Back in the writer, so dedup sees it there.
+    this.releaseInFlight(record)
     this.emitLifecycle(
       'observation:candidate:restored',
       record,
@@ -849,6 +1423,7 @@ export class ObservationalMemory {
   }
 
   private async loadPersistedCandidates(): Promise<void> {
+    if (this.pendingBuffer) return this.loadPersistedCandidatesWithStatus()
     const writer = this.stagedWriter
     const store = this.candidateStore
     if (!writer || !store) return
@@ -884,6 +1459,72 @@ export class ObservationalMemory {
         'observation:candidate:restored',
         record,
         'restored from persistent candidate storage',
+      )
+    }
+  }
+
+  /**
+   * `pendingBuffer` mode: restore candidates through the error-preserving
+   * `loadWithStatus`. A failure leaves initialization incomplete (retryable)
+   * instead of reading as "no candidates".
+   */
+  private async loadPersistedCandidatesWithStatus(): Promise<void> {
+    const writer = this.stagedWriter
+    const store = this.candidateStore
+    this.candidateLoadFailed = false
+    if (!writer || !store?.loadWithStatus) return
+
+    try {
+      const pruned = await store.prune(
+        this.config.namespace,
+        this.config.scope,
+        this.config.candidateRetention,
+      )
+      if (pruned > 0) {
+        this.emitLifecycleCount(
+          'observation:candidate:pruned',
+          pruned,
+          'candidate retention policy',
+        )
+      }
+      const loaded = await store.loadWithStatus(this.config.namespace, this.config.scope)
+      if (loaded.status === 'failed') {
+        this.candidateLoadFailed = true
+        this.emitLifecycleCount(
+          'observation:state:read-failed',
+          0,
+          `candidate-restore:${loaded.errorClass}`,
+        )
+        return
+      }
+      const records = loaded.status === 'loaded' ? loaded.records : []
+      for (const record of records) this.restoredCandidateKeys.add(record.key)
+      for (const record of records) {
+        const receipt = await store.getReceipt(
+          record.namespace,
+          record.scope,
+          record.key,
+        )
+        if (
+          receipt
+          && receipt.valueDigest === observationCandidateValueDigest(record)
+        ) {
+          await store.remove(record)
+          continue
+        }
+        writer.restore(record)
+        this.emitLifecycle(
+          'observation:candidate:restored',
+          record,
+          'restored from persistent candidate storage',
+        )
+      }
+    } catch (error: unknown) {
+      this.candidateLoadFailed = true
+      this.emitLifecycleCount(
+        'observation:state:read-failed',
+        0,
+        `candidate-restore:${error instanceof Error ? error.name : typeof error}`,
       )
     }
   }
@@ -946,9 +1587,20 @@ export class ObservationalMemory {
   ): Promise<boolean> {
     if (!this.candidateStore) return true
     try {
-      if (await this.candidateStore.put(record)) return true
+      if (await this.candidateStore.put(record)) {
+        this.candidateObligations.delete(record.key)
+        return true
+      }
     } catch {
       // Converted to a lifecycle failure below.
+    }
+    // pendingBuffer mode: an unresolved obligation blocks processing.
+    if (this.pendingBuffer) {
+      this.candidateObligations.set(record.key, {
+        ...record,
+        scope: { ...record.scope },
+        value: { ...record.value },
+      })
     }
     this.emitLifecycle(
       'observation:candidate:persistence-failed',

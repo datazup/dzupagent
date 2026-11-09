@@ -9,6 +9,7 @@
 
 import { createHash } from 'node:crypto'
 import type { MemoryService } from './memory-service.js'
+import { searchAllInNamespace } from './memory-service-store.js'
 import type { StagedRecord } from './staged-writer.js'
 
 export const OBSERVATION_CANDIDATE_SCHEMA =
@@ -38,11 +39,28 @@ export interface ObservationCandidateRetention {
   now?: (() => number) | undefined
 }
 
+/**
+ * Result of {@link ObservationCandidateStore.loadWithStatus}. `failed` means
+ * the candidate state is unknown, never that it is empty.
+ */
+export type ObservationCandidateLoadResult =
+  | { status: 'absent' }
+  | { status: 'loaded'; records: StagedRecord[] }
+  | { status: 'failed'; errorClass: string }
+
 export interface ObservationCandidateStore {
   load(
     targetNamespace: string,
     scope: Record<string, string>,
   ): Promise<StagedRecord[]>
+  /**
+   * Error-preserving load: a backing-store failure is `failed`, not an empty
+   * list. Required by ObservationalMemory's `pendingBuffer` mode.
+   */
+  loadWithStatus?(
+    targetNamespace: string,
+    scope: Record<string, string>,
+  ): Promise<ObservationCandidateLoadResult>
   put(record: StagedRecord): Promise<boolean>
   remove(record: StagedRecord): Promise<boolean>
   getReceipt(
@@ -256,6 +274,37 @@ implements ObservationCandidateStore {
         entry !== null && entry.targetNamespace === targetNamespace
       ))
       .map(entry => entry.record)
+  }
+
+  /**
+   * Reads the raw store through `searchAllInNamespace`, which propagates
+   * store failures, instead of `MemoryService.get`, which returns `[]`.
+   */
+  async loadWithStatus(
+    targetNamespace: string,
+    scope: Record<string, string>,
+  ): Promise<ObservationCandidateLoadResult> {
+    let items: Awaited<ReturnType<typeof searchAllInNamespace>>
+    try {
+      items = await searchAllInNamespace(
+        this.memoryService.getStore(),
+        this.memoryService.getNamespaceTuple(this.storeNamespace, scope),
+      )
+    } catch (error: unknown) {
+      return {
+        status: 'failed',
+        errorClass: error instanceof Error ? error.name : typeof error,
+      }
+    }
+    const records = items
+      .map(item => parseCandidateEnvelope(item.value))
+      .filter((entry): entry is CandidateEnvelope => (
+        entry !== null && entry.targetNamespace === targetNamespace
+      ))
+      .map(entry => entry.record)
+    return records.length > 0
+      ? { status: 'loaded', records }
+      : { status: 'absent' }
   }
 
   async put(record: StagedRecord): Promise<boolean> {
