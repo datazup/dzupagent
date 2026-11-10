@@ -48,7 +48,8 @@ function logAndSanitize(context: ServerCallContext | undefined, label: string, e
   try {
     const route = context?.state.get("dzup.a2a.route") as Context | undefined;
     const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
-    return new Error(logRouteError(requestInfo, label, error).safe);
+    logRouteError(requestInfo, label, error);
+    return new Error(GENERIC_ERROR);
   } catch {
     return new Error(GENERIC_ERROR);
   }
@@ -92,10 +93,13 @@ function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | u
         // Read each field once and publish a fresh object: no getter, accessor or
         // unknown kind from the host ever reaches the SDK's listeners or switch.
         const { kind, data } = event as { kind: unknown; data: unknown };
-        if (!EVENT_KINDS.has(kind as string) || typeof data !== "object" || data === null) {
+        if (!EVENT_KINDS.has(kind as string) || typeof data !== "object" || data === null || Array.isArray(data)) {
           throw new Error("invalid A2A v1 executor event");
         }
-        detached = { kind, data: structuredClone(data) } as typeof event;
+        const cloned = structuredClone(data);
+        // A first returnImmediately response is the detached event itself, not the stored copy.
+        if (kind === "task" && context) redactSdkFailureText(cloned as Task, context);
+        detached = { kind, data: cloned } as typeof event;
       } catch (error) {
         throw logAndSanitize(context, label, error);
       }
