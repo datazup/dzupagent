@@ -26,3 +26,5 @@ export { createA2AV1Handler } from './v1/request-handler.js'
 export type { A2AV1Config, A2AV1HandlerConfig, A2AV1Handler, AgentExecutor, TaskStore } from './v1/request-handler.js'
 export { toAgentCardV1 } from './v1/agent-card-v1.js'
 export type { AgentCardV1Options } from './v1/agent-card-v1.js'
+
+export { DrizzleA2AV1TaskStore, createDrizzleA2AV1TaskStore } from './v1/drizzle-task-store.js'

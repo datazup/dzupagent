@@ -148,6 +148,13 @@
       "when": 1785931621000,
       "tag": "0020_agent_mail_dlq_tenant",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794268800000,
+      "tag": "0021_a2a_v1_tasks",
+      "breakpoints": true
     }
   ]
 }
