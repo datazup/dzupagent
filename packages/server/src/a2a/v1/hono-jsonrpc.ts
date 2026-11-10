@@ -96,7 +96,7 @@ export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): 
     }
     const message = cleanParams.message;
     if (!isRecord(message) || typeof message.messageId !== "string" || !message.messageId ||
-        !["ROLE_USER", "ROLE_AGENT"].includes(String(message.role)) ||
+        typeof message.role !== "string" || !["ROLE_USER", "ROLE_AGENT"].includes(message.role) ||
         !Array.isArray(message.parts) || message.parts.length === 0) {
       return fail(-32602, "Invalid message");
     }

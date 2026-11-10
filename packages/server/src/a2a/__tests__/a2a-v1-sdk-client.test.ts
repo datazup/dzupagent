@@ -5,6 +5,7 @@ import { Message, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent } f
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
 import { AgentEvent, InMemoryTaskStore, ServerCallContext, type AgentExecutor, type ExecutionEventBus, type TaskStore } from '@a2a-js/sdk/server'
 import { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus } from '@dzupagent/core'
+import { ClientSafeError } from "../../routes/route-error.js"
 import { createForgeApp } from '../../app.js'
 import { VerifiedA2AUser, dzupOwnerResolver } from '../v1/identity.js'
 
@@ -625,6 +626,100 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
       expect(body.error?.code).toBe(-32001)
       expect(JSON.stringify(body)).not.toContain(echoed)
       expect(body.error?.data).toBeUndefined()
+    })
+
+    it('rejects a non-string or array role with -32602 and no coercion error', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const gated = gatedExecutor(() => {})
+      const call = harness({ executor: gated.executor })
+      for (const role of [{ toString: null, valueOf: null }, ['ROLE_USER'], 7, null]) {
+        const response = await call('SendMessage', { message: { messageId: 'm', role, parts: [{ text: 'hi', mediaType: 'text/plain' }] } })
+        const body = await response.json() as { error?: { code: number } }
+        expect(body.error?.code).toBe(-32602)
+      }
+    })
+
+    it.each([
+      ['url part in a status message', { url: 'https://leak.example/x', mediaType: 'application/pdf' }],
+      ['raw part in a status message', { raw: 'bGVhay1ieXRlcw==', mediaType: 'application/octet-stream' }],
+      ['data part in a status message', { data: { leak: 'fixture-data-part' }, mediaType: 'application/json' }],
+    ])('executor event with a %s is rejected to the text-only surface', async (_label, part) => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const gated = gatedExecutor((bus, ids) => {
+        bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({
+          taskId: ids.taskId, contextId: ids.contextId,
+          status: { state: 'TASK_STATE_WORKING', message: { messageId: 'p1', role: 'ROLE_AGENT', parts: [part] } },
+        })))
+      })
+      const call = harness({ executor: gated.executor })
+      const task = await startImmediate(call)
+      gated.release()
+      await settle()
+      let text = ''
+      await vi.waitFor(async () => {
+        text = await (await call('GetTask', { id: task.id })).text()
+        expect(text).toContain('TASK_STATE_FAILED')
+      }, { timeout: 2000, interval: 10 })
+      expect(text).not.toContain('leak.example')
+      expect(text).not.toContain('bGVhay1ieXRlcw')
+      expect(text).not.toContain('fixture-data-part')
+    })
+
+    it('a store whose load returns a task with a throwing toJSON never discloses its text', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const inner = new InMemoryTaskStore(dzupOwnerResolver)
+      const taskStore: TaskStore = {
+        load: async (id, context) => {
+          const loaded = await inner.load(id, context)
+          if (!loaded) return loaded
+          return { ...loaded, metadata: { toJSON: () => { throw new ClientSafeError('fixture-load-secret') } } }
+        },
+        save: (task, context) => inner.save(task, context),
+        list: (params, context) => inner.list(params, context),
+      }
+      const gated = gatedExecutor(() => {})
+      const call = harness({ executor: gated.executor, taskStore })
+      const task = await startImmediate(call)
+      const text = await (await call('GetTask', { id: task.id })).text()
+      gated.release()
+      expect(text).not.toContain('fixture-load-secret')
+    })
+
+    it('the executor gets a copy of the request context, so mutating it cannot poison SDK failure synthesis', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const executor: AgentExecutor = {
+        async execute(context) {
+          Object.defineProperty(context.userMessage, 'messageId', { get: () => { throw new Error('fixture-ctx-secret') } })
+          throw new Error('boom')
+        },
+        async cancelTask() {},
+      }
+      const call = harness({ executor })
+      const text = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(false)))).text()
+      expect(text).not.toContain('fixture-ctx-secret')
+      expect(text.length).toBeGreaterThan(0)
+    })
+
+    it('an executor-registered bus listener that throws never escapes or leaks', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const executor: AgentExecutor = {
+        async execute(context, bus) {
+          bus.on('event', () => { throw new Error('fixture-listener-secret') })
+          bus.publish(AgentEvent.task(Task.fromJSON({
+            id: context.taskId, contextId: context.contextId,
+            status: { state: 'TASK_STATE_COMPLETED' }, history: [Message.toJSON(context.userMessage)],
+          })))
+        },
+        async cancelTask() {},
+      }
+      const call = harness({ executor })
+      const text = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(false)))).text()
+      expect(text).not.toContain('fixture-listener-secret')
+      expect(text).toContain('TASK_STATE_COMPLETED')
     })
   })
 })

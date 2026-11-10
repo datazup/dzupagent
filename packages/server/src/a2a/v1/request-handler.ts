@@ -6,6 +6,7 @@ import {
   DefaultRequestHandler,
   InMemoryTaskStore,
   JsonRpcTransportHandler,
+  RequestContext,
 } from "@a2a-js/sdk/server";
 import type { AgentExecutor, ExecutionEventBus, ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
 import type { Context } from "hono";
@@ -79,6 +80,37 @@ function redactSdkFailureText(task: Task, context: ServerCallContext): void {
   }
 }
 
+type PartCarrier = { parts?: Array<{ content?: { $case?: string } }> } | undefined;
+
+/** The admitted surface is text only: every part an executor publishes must be a text part. */
+function assertTextOnlyEvent(kind: string, data: Record<string, unknown>): void {
+  const carriers: PartCarrier[] = [];
+  const status = data.status as { message?: PartCarrier } | undefined;
+  if (kind === "message") carriers.push(data as PartCarrier);
+  if (status?.message) carriers.push(status.message);
+  for (const message of (data.history as PartCarrier[] | undefined) ?? []) carriers.push(message);
+  const artifacts = [...((data.artifacts as PartCarrier[] | undefined) ?? [])];
+  if (data.artifact) artifacts.push(data.artifact as PartCarrier);
+  carriers.push(...artifacts);
+  for (const carrier of carriers) {
+    for (const part of carrier?.parts ?? []) {
+      if (part?.content?.$case !== "text") throw new Error("A2A v1 only serves text parts");
+    }
+  }
+}
+
+/** Copies the host-visible request context so the executor cannot mutate state the SDK reads later. */
+function copyRequestContext(request: RequestContext): RequestContext {
+  return new RequestContext(
+    structuredClone(request.request),
+    request.taskId,
+    request.contextId,
+    request.context,
+    request.task ? structuredClone(request.task) : undefined,
+    request.referenceTasks ? structuredClone(request.referenceTasks) : undefined
+  );
+}
+
 /**
  * Events are detached (structured-cloned) at the bus boundary so a hostile
  * getter or unclonable value fails here, inside the executor call, where the
@@ -86,6 +118,23 @@ function redactSdkFailureText(task: Task, context: ServerCallContext): void {
  * SDK's background loop.
  */
 function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string): ExecutionEventBus {
+  // Host listeners get a detached copy of each event and cannot throw into the SDK's dispatch.
+  const guarded = new WeakMap<object, (...args: unknown[]) => void>();
+  const guard = (listener: unknown): never => {
+    const fn = listener as (...args: unknown[]) => void;
+    let safe = guarded.get(fn);
+    if (!safe) {
+      safe = (...args: unknown[]) => {
+        try {
+          fn(...args.map((arg) => (typeof arg === "object" && arg !== null ? structuredClone(arg) : arg)));
+        } catch (error) {
+          logAndSanitize(context, label, error);
+        }
+      };
+      guarded.set(fn, safe);
+    }
+    return safe as never;
+  };
   const wrapped: ExecutionEventBus = {
     publish(event) {
       let detached: typeof event;
@@ -97,6 +146,7 @@ function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | u
           throw new Error("invalid A2A v1 executor event");
         }
         const cloned = structuredClone(data);
+        assertTextOnlyEvent(kind as string, cloned as Record<string, unknown>);
         // A first returnImmediately response is the detached event itself, not the stored copy.
         if (kind === "task" && context) redactSdkFailureText(cloned as Task, context);
         detached = { kind, data: cloned } as typeof event;
@@ -105,9 +155,9 @@ function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | u
       }
       bus.publish(detached);
     },
-    on(eventName: never, listener: never) { bus.on(eventName, listener); return wrapped; },
-    off(eventName: never, listener: never) { bus.off(eventName, listener); return wrapped; },
-    once(eventName: never, listener: never) { bus.once(eventName, listener); return wrapped; },
+    on(eventName: never, listener: never) { bus.on(eventName, guard(listener)); return wrapped; },
+    off(eventName: never, listener: never) { bus.off(eventName, guard(listener)); return wrapped; },
+    once(eventName: never, listener: never) { bus.once(eventName, guard(listener)); return wrapped; },
     removeAllListeners(eventName) { bus.removeAllListeners(eventName); return wrapped; },
     finished() { bus.finished(); },
   };
@@ -124,8 +174,11 @@ function sanitizeTaskStore(store: TaskStore): TaskStore {
   return {
     async load(taskId, context) {
       try {
-        const loaded = await store.load(taskId, context);
-        if (loaded) redactSdkFailureText(loaded, context);
+        const raw = await store.load(taskId, context);
+        if (!raw) return raw;
+        // Detach so host-store objects (accessors, toJSON, shared references) never reach the SDK or serializer.
+        const loaded = structuredClone(raw);
+        redactSdkFailureText(loaded, context);
         return loaded;
       } catch (error) {
         throw logAndSanitize(context, "a2a.v1.task-store", error);
@@ -159,7 +212,7 @@ export function createA2AV1Handler({
   const safeExecutor: AgentExecutor = {
     async execute(request, bus) {
       try {
-        await executor.execute(request, sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
+        await executor.execute(copyRequestContext(request), sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
       } catch (error) {
         throw logAndSanitize(request.context, "a2a.v1.execute", error);
       }
