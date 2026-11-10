@@ -24,13 +24,15 @@ interface FakeSelect {
  */
 class FakeDatabase {
   rows: Array<Record<string, unknown>> = []
+  /** One entry per select: whether it was the count query, its LIMIT and how many rows it returned. */
+  selects: Array<{ counting: boolean; limit: number; returned: number }> = []
   failure: 'save' | 'load' | 'list' | undefined
   readonly dialect = new PgDialect()
 
   private matches(condition: SQL | undefined, row: Record<string, unknown>, incoming = row): boolean {
     if (!condition) return true
     const query = this.dialect.sqlToQuery(condition)
-    const tokens = query.sql.match(/"[^"]+"\."[^"]+"|excluded\.task|\$\d+|not\s+in|and|or|[()=,>]/gi) ?? []
+    const tokens = query.sql.match(/"[^"]+"\."[^"]+"|excluded\.task|\$\d+|not\s+in|is\s+null|and|or|[()=,><]/gi) ?? []
     let at = 0
     const value = (): unknown => {
       const token = tokens[at++]!
@@ -49,7 +51,8 @@ class FakeDatabase {
         return result
       }
       const left = value()
-      const operator = tokens[at++]!.toLowerCase()
+      const operator = tokens[at++]!.toLowerCase().replace(/\s+/g, ' ')
+      if (operator === 'is null') return left === null
       if (operator === 'not in') {
         if (tokens[at++] !== '(') throw new Error('Fake SQL: missing list')
         const values = [value()]
@@ -60,6 +63,7 @@ class FakeDatabase {
       const right = value()
       if (operator === '=') return equal(left, right)
       if (operator === '>') return left instanceof Date && left.getTime() > new Date(String(right)).getTime()
+      if (operator === '<') return left instanceof Date ? left.getTime() < new Date(String(right)).getTime() : typeof left === 'string' && left < String(right)
       throw new Error(`Fake SQL: unsupported operator ${operator}`)
     }
     const conjunction = (): boolean => {
@@ -77,7 +81,8 @@ class FakeDatabase {
     return result
   }
 
-  select(): FakeSelect {
+  select(selection?: unknown): FakeSelect {
+    const counting = selection !== undefined
     let condition: SQL | undefined
     let maximum = Infinity
     const ordering: SQL[] = []
@@ -89,6 +94,7 @@ class FakeDatabase {
       then: (resolve: (rows: unknown[]) => unknown, reject: (error: unknown) => unknown) => Promise.resolve().then(() => {
         if (this.failure === (maximum === 1 ? 'load' : 'list')) throw new Error('fixture-db-driver-detail')
         const rows = this.rows.filter((row) => this.matches(condition, row))
+        if (counting) { this.selects.push({ counting, limit: Infinity, returned: 1 }); return [{ total: rows.length }] }
         if (ordering.length) rows.sort((a, b) => {
           for (const expression of ordering) {
             const text = this.dialect.sqlToQuery(expression).sql
@@ -102,7 +108,9 @@ class FakeDatabase {
           }
           return 0
         })
-        return structuredClone(rows.slice(0, maximum))
+        const bounded = rows.slice(0, maximum)
+        this.selects.push({ counting, limit: maximum, returned: bounded.length })
+        return structuredClone(bounded)
       }).then(resolve, reject),
     }
     return query
@@ -148,10 +156,10 @@ const scope = (tenantId = 'tenant-fixture', ownerId = 'alice-fixture') => new Se
 const alice = scope()
 const bob = scope('tenant-fixture', 'bob-fixture')
 const otherTenant = scope('other-tenant', 'alice-fixture')
-const fixture = (id = 'task-fixture', state = 'TASK_STATE_WORKING', contextId = 'context-fixture') => Task.fromJSON({
+const fixture = (id = 'task-fixture', state = 'TASK_STATE_WORKING', contextId = 'context-fixture', timestamp: string | null = '2026-10-10T10:11:12.345Z') => Task.fromJSON({
   id, contextId,
   status: {
-    state, timestamp: '2026-10-10T10:11:12.345Z',
+    state, ...(timestamp === null ? {} : { timestamp }),
     message: { messageId: 'status-message', role: 'ROLE_AGENT', parts: [{ text: 'status fixture', mediaType: 'text/plain' }] },
   },
   history: [
@@ -232,28 +240,50 @@ function registerCases(get: () => Harness) {
   it('G1.06 list scopes orders filters paginates and caps pages at 100', async () => {
     expect(fixture().status!.timestamp!.length).toBeGreaterThan(0)
     const h = get()
-    for (const id of ['page-a', 'page-c', 'page-b']) await h.store.save(fixture(id), alice)
+    // Timestamps deliberately conflict with id order (order-a is newest, order-z oldest) and include equal and absent
+    // timestamps, so reversing or removing the status_timestamp ordering changes the result.
+    const at = (clock: string) => `2026-10-10T${clock}Z`
+    const ordered: Array<[string, string | null]> = [
+      ['order-z', at('11:00:00.000')], ['order-a', at('13:00:00.000')], ['order-e1', at('10:30:00.000')],
+      ['order-m', at('12:00:00.000')], ['order-null-a', null], ['order-e2', at('10:30:00.000')], ['order-null-b', null],
+    ]
+    for (const [id, time] of ordered) await h.store.save(fixture(id, 'TASK_STATE_WORKING', 'context-fixture', time), alice)
     await h.store.save(fixture('foreign-owner'), bob)
     await h.store.save(fixture('foreign-tenant'), otherTenant)
     await h.store.save(fixture('different-status', 'TASK_STATE_INPUT_REQUIRED'), alice)
     await h.store.save(fixture('different-context', 'TASK_STATE_WORKING', 'unmatched-context'), alice)
+    const expectedOrder = ['order-a', 'order-m', 'order-z', 'order-e2', 'order-e1', 'order-null-b', 'order-null-a']
+    expect(new Set(expectedOrder).size).toBe(ordered.length)
     const params = listing({ contextId: 'context-fixture', status: 'TASK_STATE_WORKING', pageSize: 2 })
+    const seen: string[] = []
+    let token = ''
+    let pages = 0
+    do {
+      const page = await (pages % 2 ? h.newStore() : h.store).list(token ? { ...params, pageToken: token } : params, alice)
+      expect(page.totalSize).toBe(ordered.length)
+      expect(page.tasks.length).toBeGreaterThan(0)
+      seen.push(...page.tasks.map((task) => task.id))
+      token = page.nextPageToken
+      pages += 1
+    } while (token && pages < 10)
+    // Pages cross the distinct, equal and absent timestamp boundaries: [a,m] [z,e2] [e1,null-b] [null-a].
+    expect(seen).toEqual(expectedOrder)
+    expect(pages).toBe(4)
     const page = await h.store.list(params, alice)
-    expect(page.tasks.map((task) => task.id)).toEqual(['page-c', 'page-b'])
-    expect(page.totalSize).toBe(3)
+    expect(page.tasks.map((task) => task.id)).toEqual(['order-a', 'order-m'])
     expect(page.nextPageToken.length).toBeGreaterThan(0)
     expect(page.tasks[0]!.artifacts.length).toBeGreaterThan(0)
-    const next = await h.newStore().list({ ...params, pageToken: page.nextPageToken }, alice)
-    expect(next.tasks.map((task) => task.id)).toEqual(['page-a'])
-    expect(next.nextPageToken).toBe('')
-    expect(next.totalSize).toBe(3)
     expect((await h.store.list({ ...params, includeArtifacts: false }, alice)).tasks[0]!.artifacts).toEqual([])
-    expect((await h.store.list({ ...params, statusTimestampAfter: '2026-10-09T00:00:00Z' }, alice)).totalSize).toBe(3)
+    const after = await h.store.list({ ...params, pageSize: 100, statusTimestampAfter: '2026-10-09T00:00:00Z' }, alice)
+    expect(after.totalSize).toBe(5) // absent timestamps never satisfy statusTimestampAfter
+    const newest = await h.store.list({ ...params, pageSize: 100, statusTimestampAfter: '2026-10-10T12:30:00Z' }, alice)
+    expect(newest.tasks.map((task) => task.id)).toEqual(['order-a'])
     expect((await h.store.list(listing({ statusTimestampAfter: '2026-10-11T00:00:00Z' }), alice)).tasks).toEqual([])
     for (let i = 0; i < 101; i++) await h.store.save(fixture(`cap-${i}`, 'TASK_STATE_WORKING', 'cap-context'), alice)
     const capped = await h.store.list(listing({ contextId: 'cap-context', pageSize: 999 }), alice)
     expect(capped.tasks).toHaveLength(100)
     expect(capped.pageSize).toBe(100)
+    expect(capped.totalSize).toBe(101)
     expect(capped.nextPageToken.length).toBeGreaterThan(0)
     await expect(h.store.list({ ...params, pageToken: 'malformed' }, alice)).rejects.toThrow('Internal server error')
   })
@@ -375,8 +405,10 @@ function registerCases(get: () => Harness) {
 
 describe('DrizzleA2AV1TaskStore conformance against an in-test fake', () => {
   let harness: Harness
+  let fakeDb: FakeDatabase
   beforeEach(() => {
     const fake = new FakeDatabase()
+    fakeDb = fake
     const db = fake as unknown as DrizzleStoreDatabase
     const logs: LogEntry[] = []
     const newStore = () => createDrizzleA2AV1TaskStore(db, { logger: (entry) => logs.push(entry) })
@@ -391,4 +423,32 @@ describe('DrizzleA2AV1TaskStore conformance against an in-test fake', () => {
   })
   afterEach(() => vi.restoreAllMocks())
   registerCases(() => harness)
+
+  it('G1.14 list bounds row retrieval in SQL and never materialises the whole scoped set', async () => {
+    const total = 30
+    for (let i = 0; i < total; i++) await harness.store.save(fixture(`bounded-${String(i).padStart(2, '0')}`, 'TASK_STATE_WORKING', 'bounded-context', `2026-10-10T10:00:${String(i).padStart(2, '0')}.000Z`), alice)
+    expect(fakeDb.rows).toHaveLength(total)
+    fakeDb.selects.length = 0
+    const params = listing({ contextId: 'bounded-context', pageSize: 2 })
+    let token = ''
+    let pages = 0
+    const seen: string[] = []
+    do {
+      const page = await harness.store.list(token ? { ...params, pageToken: token } : params, alice)
+      seen.push(...page.tasks.map((task) => task.id))
+      expect(page.totalSize).toBe(total)
+      token = page.nextPageToken
+      pages += 1
+    } while (token && pages < total)
+    expect(seen).toHaveLength(total)
+    expect(new Set(seen).size).toBe(total)
+    const pageQueries = fakeDb.selects.filter((entry) => !entry.counting)
+    expect(pageQueries).toHaveLength(pages)
+    // Each page query carries LIMIT pageSize + 1 and never returns the full scoped set.
+    for (const query of pageQueries) {
+      expect(query.limit).toBe(3)
+      expect(query.returned).toBeLessThanOrEqual(3)
+    }
+    expect(fakeDb.selects.filter((entry) => entry.counting)).toHaveLength(pages)
+  })
 })

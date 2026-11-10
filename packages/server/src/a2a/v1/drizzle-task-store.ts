@@ -1,7 +1,7 @@
 import { Task, TaskState, taskStateToJSON } from '@a2a-js/sdk'
 import type { ListTasksRequest, ListTasksResponse } from '@a2a-js/sdk'
 import type { ServerCallContext, TaskStore } from '@a2a-js/sdk/server'
-import { and, desc, eq, gt, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, lt, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { a2aV1Tasks } from '../../persistence/drizzle-schema.js'
 import type { DrizzleMutationResult, DrizzleStoreDatabase } from '../../persistence/drizzle-store-types.js'
 import { dzupOwnerResolver } from './identity.js'
@@ -174,26 +174,41 @@ export class DrizzleA2AV1TaskStore implements TaskStore {
       if (!timestamp(params.statusTimestampAfter)) throw new Error('Internal server error')
       conditions.push(gt(a2aV1Tasks.statusTimestamp, new Date(params.statusTimestampAfter)))
     }
-    // Match SDK cursor/totalSize semantics over the scoped, filtered snapshot.
+    // Keyset pagination: the page query is bounded by LIMIT pageSize + 1 in SQL, so the scoped set is never
+    // materialised. totalSize comes from a separate count over the same scoped, filtered predicate.
     // NULL timestamps sort last (the SDK treats an absent timestamp as "").
-    const rows = await this.db.select().from(a2aV1Tasks).where(and(...conditions))
-      .orderBy(sql`${a2aV1Tasks.statusTimestamp} desc nulls last`, desc(a2aV1Tasks.id))
-    const tasks = rows.flatMap((row) => { const task = this.decode(row); return task ? [task] : [] })
-    const totalSize = tasks.length
-    let start = 0
+    const counted = await this.db.select({ total: sql`count(*)` }).from(a2aV1Tasks).where(and(...conditions))
+    const first = counted[0]
+    const totalSize = Number(record(first) ? first.total : Number.NaN)
+    if (!Number.isSafeInteger(totalSize) || totalSize < 0) throw new Error('Internal server error')
+    const pageConditions = [...conditions]
     if (params.pageToken) {
       try {
         if (params.pageToken.length > MAX_BYTES * 2) throw new Error()
         const cursor: unknown = JSON.parse(Buffer.from(params.pageToken, 'base64url').toString('utf8'))
         if (!Array.isArray(cursor) || cursor.length !== 3 || cursor[0] !== 1 || !string(cursor[1]) || !string(cursor[2])) throw new Error()
-        const index = tasks.findIndex((task) => (task.status?.timestamp ?? '') === cursor[1] && task.id === cursor[2])
-        start = index < 0 ? tasks.length : index + 1
+        const afterId = cursor[2]
+        if (cursor[1] === '') {
+          pageConditions.push(and(isNull(a2aV1Tasks.statusTimestamp), lt(a2aV1Tasks.id, afterId))!)
+        } else {
+          if (!timestamp(cursor[1])) throw new Error()
+          const afterTime = new Date(cursor[1])
+          pageConditions.push(or(
+            lt(a2aV1Tasks.statusTimestamp, afterTime),
+            and(eq(a2aV1Tasks.statusTimestamp, afterTime), lt(a2aV1Tasks.id, afterId)),
+            isNull(a2aV1Tasks.statusTimestamp)
+          )!)
+        }
       } catch { throw new Error('Internal server error') }
     }
-    const page = tasks.slice(start, start + pageSize)
-    const last = page[page.length - 1]
-    const nextPageToken = last && start + page.length < tasks.length
-      ? Buffer.from(JSON.stringify([1, last.status?.timestamp ?? '', last.id])).toString('base64url') : ''
+    const rows = await this.db.select().from(a2aV1Tasks).where(and(...pageConditions))
+      .orderBy(sql`${a2aV1Tasks.statusTimestamp} desc nulls last`, desc(a2aV1Tasks.id))
+      .limit(pageSize + 1)
+    const pageRows = rows.slice(0, pageSize)
+    const page = pageRows.flatMap((row) => { const task = this.decode(row); return task ? [task] : [] })
+    const lastRow = pageRows[pageRows.length - 1]
+    const nextPageToken = rows.length > pageSize && record(lastRow) && string(lastRow.id)
+      ? Buffer.from(JSON.stringify([1, lastRow.statusTimestamp instanceof Date ? lastRow.statusTimestamp.toISOString() : '', lastRow.id])).toString('base64url') : ''
     if (!params.includeArtifacts) for (const task of page) task.artifacts = []
     return { tasks: page, nextPageToken, pageSize, totalSize }
   }

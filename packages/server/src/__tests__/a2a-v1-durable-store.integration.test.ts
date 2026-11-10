@@ -1,10 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentCard, ListTasksRequest, type Message, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent } from '@a2a-js/sdk'
-import { AgentEvent, ServerCallContext, type AgentExecutor } from '@a2a-js/sdk/server'
+import { AgentEvent, ServerCallContext, type AgentExecutor, type TaskStore } from '@a2a-js/sdk/server'
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
 import { serve, type ServerType } from '@hono/node-server'
 import { request as httpRequest } from 'node:http'
 import { readFileSync } from 'node:fs'
+import { setTimeout as drainTimeout } from 'node:timers/promises'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import type { Client as PgClient } from 'pg'
 import type * as PgModule from 'pg'
@@ -51,10 +52,10 @@ const scope = (tenantId = 'tenant-fixture', ownerId = 'alice-fixture') => new Se
 const alice = scope()
 const bob = scope('tenant-fixture', 'bob-fixture')
 const otherTenant = scope('other-tenant', 'alice-fixture')
-const fixture = (id = 'task-fixture', state = 'TASK_STATE_WORKING', contextId = 'context-fixture') => Task.fromJSON({
+const fixture = (id = 'task-fixture', state = 'TASK_STATE_WORKING', contextId = 'context-fixture', timestamp: string | null = '2026-10-10T10:11:12.345Z') => Task.fromJSON({
   id, contextId,
   status: {
-    state, timestamp: '2026-10-10T10:11:12.345Z',
+    state, ...(timestamp === null ? {} : { timestamp }),
     message: { messageId: 'status-message', role: 'ROLE_AGENT', parts: [{ text: 'status fixture', mediaType: 'text/plain' }] },
   },
   history: [
@@ -135,28 +136,50 @@ function registerCases(get: () => Harness) {
   it('G1.06 list scopes orders filters paginates and caps pages at 100', async () => {
     expect(fixture().status!.timestamp!.length).toBeGreaterThan(0)
     const h = get()
-    for (const id of ['page-a', 'page-c', 'page-b']) await h.store.save(fixture(id), alice)
+    // Timestamps deliberately conflict with id order (order-a is newest, order-z oldest) and include equal and absent
+    // timestamps, so reversing or removing the status_timestamp ordering changes the result.
+    const at = (clock: string) => `2026-10-10T${clock}Z`
+    const ordered: Array<[string, string | null]> = [
+      ['order-z', at('11:00:00.000')], ['order-a', at('13:00:00.000')], ['order-e1', at('10:30:00.000')],
+      ['order-m', at('12:00:00.000')], ['order-null-a', null], ['order-e2', at('10:30:00.000')], ['order-null-b', null],
+    ]
+    for (const [id, time] of ordered) await h.store.save(fixture(id, 'TASK_STATE_WORKING', 'context-fixture', time), alice)
     await h.store.save(fixture('foreign-owner'), bob)
     await h.store.save(fixture('foreign-tenant'), otherTenant)
     await h.store.save(fixture('different-status', 'TASK_STATE_INPUT_REQUIRED'), alice)
     await h.store.save(fixture('different-context', 'TASK_STATE_WORKING', 'unmatched-context'), alice)
+    const expectedOrder = ['order-a', 'order-m', 'order-z', 'order-e2', 'order-e1', 'order-null-b', 'order-null-a']
+    expect(new Set(expectedOrder).size).toBe(ordered.length)
     const params = listing({ contextId: 'context-fixture', status: 'TASK_STATE_WORKING', pageSize: 2 })
+    const seen: string[] = []
+    let token = ''
+    let pages = 0
+    do {
+      const page = await (pages % 2 ? h.newStore() : h.store).list(token ? { ...params, pageToken: token } : params, alice)
+      expect(page.totalSize).toBe(ordered.length)
+      expect(page.tasks.length).toBeGreaterThan(0)
+      seen.push(...page.tasks.map((task) => task.id))
+      token = page.nextPageToken
+      pages += 1
+    } while (token && pages < 10)
+    // Pages cross the distinct, equal and absent timestamp boundaries: [a,m] [z,e2] [e1,null-b] [null-a].
+    expect(seen).toEqual(expectedOrder)
+    expect(pages).toBe(4)
     const page = await h.store.list(params, alice)
-    expect(page.tasks.map((task) => task.id)).toEqual(['page-c', 'page-b'])
-    expect(page.totalSize).toBe(3)
+    expect(page.tasks.map((task) => task.id)).toEqual(['order-a', 'order-m'])
     expect(page.nextPageToken.length).toBeGreaterThan(0)
     expect(page.tasks[0]!.artifacts.length).toBeGreaterThan(0)
-    const next = await h.newStore().list({ ...params, pageToken: page.nextPageToken }, alice)
-    expect(next.tasks.map((task) => task.id)).toEqual(['page-a'])
-    expect(next.nextPageToken).toBe('')
-    expect(next.totalSize).toBe(3)
     expect((await h.store.list({ ...params, includeArtifacts: false }, alice)).tasks[0]!.artifacts).toEqual([])
-    expect((await h.store.list({ ...params, statusTimestampAfter: '2026-10-09T00:00:00Z' }, alice)).totalSize).toBe(3)
+    const after = await h.store.list({ ...params, pageSize: 100, statusTimestampAfter: '2026-10-09T00:00:00Z' }, alice)
+    expect(after.totalSize).toBe(5) // absent timestamps never satisfy statusTimestampAfter
+    const newest = await h.store.list({ ...params, pageSize: 100, statusTimestampAfter: '2026-10-10T12:30:00Z' }, alice)
+    expect(newest.tasks.map((task) => task.id)).toEqual(['order-a'])
     expect((await h.store.list(listing({ statusTimestampAfter: '2026-10-11T00:00:00Z' }), alice)).tasks).toEqual([])
     for (let i = 0; i < 101; i++) await h.store.save(fixture(`cap-${i}`, 'TASK_STATE_WORKING', 'cap-context'), alice)
     const capped = await h.store.list(listing({ contextId: 'cap-context', pageSize: 999 }), alice)
     expect(capped.tasks).toHaveLength(100)
     expect(capped.pageSize).toBe(100)
+    expect(capped.totalSize).toBe(101)
     expect(capped.nextPageToken.length).toBeGreaterThan(0)
     await expect(h.store.list({ ...params, pageToken: 'malformed' }, alice)).rejects.toThrow('Internal server error')
   })
@@ -397,7 +420,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
   })
   registerCases(() => harness)
 
-  async function startRuntime() {
+  async function startRuntime(options: { wrapStore?: (store: DrizzleA2AV1TaskStore) => TaskStore } = {}) {
     const dbClient = new pg.Client(connection)
     await dbClient.connect()
     let store: DrizzleA2AV1TaskStore | undefined = createDrizzleA2AV1TaskStore(drizzle(dbClient) as unknown as DrizzleStoreDatabase)
@@ -405,6 +428,20 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
     let server: ServerType
     let base = ''
     const executed: string[] = []
+    // Every store operation the SDK starts, so teardown waits for real pending SDK processing instead of event-loop turns.
+    const inflight = new Set<Promise<unknown>>()
+    const storeFailures: unknown[] = []
+    const track = <T,>(operation: Promise<T>): Promise<T> => {
+      inflight.add(operation)
+      operation.then(() => { inflight.delete(operation) }, (error: unknown) => { inflight.delete(operation); storeFailures.push(error) })
+      return operation
+    }
+    const durable: TaskStore = options.wrapStore ? options.wrapStore(store!) : store!
+    const trackedStore: TaskStore = {
+      load: (id, context) => track(durable.load(id, context)),
+      save: (task, context) => track(durable.save(task, context)),
+      list: (params, context) => track(durable.list(params, context)),
+    }
     const canceled: string[] = []
     const gates = new Map<string, { release: () => void; ended: Promise<void> }>()
     const executor: AgentExecutor = {
@@ -414,8 +451,10 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
         const finish = content?.$case === 'text' && content.value === 'finish'
         const immediate = context.request.configuration?.returnImmediately === true
         // SDK 1.3.0 keeps the bus open for INPUT_REQUIRED, so a blocking send would never resolve; input-required tasks are created with returnImmediately.
-        const holds = immediate && content?.$case === 'text' && content.value === 'working'
-        const state = finish ? 'TASK_STATE_COMPLETED' : holds ? 'TASK_STATE_WORKING' : 'TASK_STATE_INPUT_REQUIRED'
+        const holds = immediate && ['working', 'poke', 'serialize'].includes(content?.$case === 'text' ? content.value : '')
+        const text = content?.$case === 'text' ? content.value : ''
+        const workingLike = immediate && ['working', 'poke', 'serialize', 'throw'].includes(text)
+        const state = finish ? 'TASK_STATE_COMPLETED' : workingLike ? 'TASK_STATE_WORKING' : 'TASK_STATE_INPUT_REQUIRED'
         const task = fixture(context.taskId, state, context.contextId)
         task.history = context.task?.history ?? [context.userMessage]
         task.metadata = { ...task.metadata, executions: executed.length }
@@ -425,7 +464,18 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
         const ended = new Promise<void>((resolve) => { end = resolve })
         if (holds) gates.set(context.taskId, { release, ended })
         bus.publish(AgentEvent.task(task))
-        try { if (holds) await wait } finally { end() }
+        try {
+          if (holds) await wait
+          if (text === 'poke') {
+            bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId: context.taskId, contextId: context.contextId, status: { state: 'TASK_STATE_WORKING' } })))
+          }
+          if (text === 'serialize') {
+            const update = TaskStatusUpdateEvent.fromJSON({ taskId: context.taskId, contextId: context.contextId, status: { state: 'TASK_STATE_WORKING' } })
+            update.metadata = { unsupported: BigInt(1) }
+            bus.publish(AgentEvent.statusUpdate(update))
+          }
+          if (text === 'throw') { await Promise.resolve(); throw new Error('fixture-executor-secret-detail') }
+        } finally { end() }
       },
       async cancelTask(taskId, bus) {
         canceled.push(taskId)
@@ -450,7 +500,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
           })[label as 'alice' | 'bob' | 'otherTenant'] ?? null },
           a2a: {
             agentCardConfig: { name: 'durable-sdk-fixture', description: 'Durability fixture', baseUrl: base, version: '1', authType: 'bearer', agents: [] },
-            v1: { executor, taskStore: store },
+            v1: { executor, taskStore: trackedStore },
           },
         })
         resolve()
@@ -468,8 +518,10 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
       }).createFromUrl(base)
     }
     let closed = false
-    return {
-      clientFor, executed, canceled,
+    const api = {
+      clientFor, executed, canceled, storeFailures, expectedFailures: 0,
+      release: (id: string) => gates.get(id)!.release(),
+      ended: (id: string) => gates.get(id)!.ended,
       close: async () => {
         if (closed) return
         closed = true
@@ -477,13 +529,26 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
         // the same working payload a process loss would leave in Postgres.
         for (const gate of gates.values()) gate.release()
         await Promise.all([...gates.values()].map((gate) => gate.ended))
-        for (let i = 0; i < 5; i++) await new Promise<void>((resolve) => setImmediate(resolve))
+        // Drain: wait until no store operation is in flight across two consecutive event-loop turns.
+        const quiet = (async () => {
+          for (let calm = 0; calm < 2;) {
+            if (inflight.size) { await Promise.allSettled([...inflight]); calm = 0 } else {
+              await new Promise<void>((resolve) => setImmediate(resolve))
+              if (!inflight.size) calm += 1
+            }
+          }
+        })()
+        await Promise.race([quiet, drainTimeout(10_000, undefined, { ref: false }).then(() => { throw new Error('Runtime drain timeout') })])
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
         app = undefined
         store = undefined
         await dbClient.end()
+        if (storeFailures.length !== api.expectedFailures) {
+          throw new Error(`Unexpected background store failures: ${storeFailures.length} (expected ${api.expectedFailures})`)
+        }
       },
     }
+    return api
   }
 
   const send = (text = 'input', values: Record<string, unknown> = {}) => SendMessageRequest.fromJSON({
@@ -599,6 +664,94 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
     const completed = taskResult(await (await runtime.clientFor()).sendMessage(finish))
     expect(completed.history.map((message) => message.messageId)).toEqual(['sdk-message-fixture', 'sdk-message-fixture', 'finish-message'])
     expect(completed.status!.state).toBe(TaskState.TASK_STATE_COMPLETED)
+    expect(await harness.newStore().load(task.id, alice)).toEqual(completed)
     expect(await harness.rows()).toHaveLength(1)
   })
+  describe('M1 regression with the durable store on real Postgres', () => {
+    const generic = 'Internal server error'
+    const persisted = (id: string) => harness.newStore().load(id, alice)
+    const stateOf = async (id: string) => (await persisted(id))?.status?.state
+    const toText = (value: unknown) => JSON.stringify(value)
+
+    it('M1.01 live in-process CancelTask calls the executor then persists CANCELED and repeats as -32002', async () => {
+      expect(send().message!.parts.length).toBeGreaterThan(0)
+      runtime = await startRuntime()
+      const client = await runtime.clientFor()
+      const task = taskResult(await client.sendMessage(send('working', { configuration: { returnImmediately: true } })))
+      expect(task.status!.state).toBe(TaskState.TASK_STATE_WORKING)
+      expect(await stateOf(task.id)).toBe(TaskState.TASK_STATE_WORKING)
+      const canceled = await client.cancelTask({ id: task.id, tenant: '', metadata: undefined })
+      expect(canceled.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+      expect(runtime.canceled).toEqual([task.id])
+      await vi.waitFor(async () => { expect(await stateOf(task.id)).toBe(TaskState.TASK_STATE_CANCELED) }, { timeout: 3000, interval: 25 })
+      await expect(client.cancelTask({ id: task.id, tenant: '', metadata: undefined })).rejects.toMatchObject({ envelopeCode: -32002 })
+      expect(runtime.canceled).toEqual([task.id])
+    })
+
+    it('M1.02 an executor failure after returnImmediately persists only the generic failure message', async () => {
+      expect(send().message!.parts.length).toBeGreaterThan(0)
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      runtime = await startRuntime()
+      const client = await runtime.clientFor()
+      const task = taskResult(await client.sendMessage(send('throw', { configuration: { returnImmediately: true } })))
+      await vi.waitFor(async () => { expect(await stateOf(task.id)).toBe(TaskState.TASK_STATE_FAILED) }, { timeout: 3000, interval: 25 })
+      const stored = (await persisted(task.id))!
+      expect(toText(stored)).not.toContain('fixture-executor-secret-detail')
+      expect(toText(stored)).toContain(generic)
+      expect(JSON.stringify(stored.status!.message)).toContain(generic)
+      const viaHttp = toText(await client.getTask({ id: task.id, tenant: '' }))
+      expect(viaHttp).not.toContain('fixture-executor-secret-detail')
+      expect(JSON.stringify(logged.mock.calls)).toContain('a2a.v1.execute')
+    })
+
+    it('M1.03 a transient background DB failure after returnImmediately persists FAILED with the generic message', async () => {
+      expect(send().message!.parts.length).toBeGreaterThan(0)
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let failNextSave = false
+      runtime = await startRuntime({
+        wrapStore: (inner) => ({
+          load: (id, context) => inner.load(id, context),
+          save: async (task, context) => {
+            if (failNextSave) { failNextSave = false; throw new Error('fixture-db-driver-detail') }
+            return inner.save(task, context)
+          },
+          list: (params, context) => inner.list(params, context),
+        }),
+      })
+      runtime.expectedFailures = 1
+      const client = await runtime.clientFor()
+      const task = taskResult(await client.sendMessage(send('poke', { configuration: { returnImmediately: true } })))
+      expect(task.status!.state).toBe(TaskState.TASK_STATE_WORKING)
+      failNextSave = true
+      runtime.release(task.id)
+      await vi.waitFor(async () => { expect(await stateOf(task.id)).toBe(TaskState.TASK_STATE_FAILED) }, { timeout: 3000, interval: 25 })
+      await runtime.ended(task.id)
+      const stored = (await persisted(task.id))!
+      expect(toText(stored)).not.toContain('fixture-db-driver-detail')
+      expect(toText(stored)).toContain(generic)
+      expect(stored.history.length).toBeGreaterThan(1)
+      expect(toText(await client.getTask({ id: task.id, tenant: '' }))).not.toContain('fixture-db-driver-detail')
+      expect(JSON.stringify(logged.mock.calls)).toContain('a2a.v1.task-store')
+      expect(await harness.rows()).toHaveLength(1)
+    })
+
+    it('M1.04 a background serialization failure after returnImmediately persists FAILED with the generic message', async () => {
+      expect(send().message!.parts.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      runtime = await startRuntime()
+      runtime.expectedFailures = 1
+      const client = await runtime.clientFor()
+      const task = taskResult(await client.sendMessage(send('serialize', { configuration: { returnImmediately: true } })))
+      expect(task.status!.state).toBe(TaskState.TASK_STATE_WORKING)
+      runtime.release(task.id)
+      await vi.waitFor(async () => { expect(await stateOf(task.id)).toBe(TaskState.TASK_STATE_FAILED) }, { timeout: 3000, interval: 25 })
+      await runtime.ended(task.id)
+      const stored = (await persisted(task.id))!
+      expect(toText(stored)).toContain(generic)
+      expect(toText(stored)).not.toContain('unsupported')
+      expect(stored.history.length).toBeGreaterThan(1)
+      expect(await harness.rows()).toHaveLength(1)
+    })
+  })
+
 })
