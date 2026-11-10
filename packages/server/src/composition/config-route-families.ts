@@ -63,6 +63,9 @@ import type {
   PromptFeedbackLoopLike,
   LearningEventProcessorLike,
 } from "./config-control-plane.js";
+import type { A2AV1Config } from "../a2a/v1/request-handler.js";
+export type { AgentExecutor, TaskStore, A2AV1Config } from "../a2a/v1/request-handler.js";
+
 import type { MemoryTenantScopeConfig } from "../routes/memory-tenant-scope.js";
 
 /** Memory and run-history route family config. */
@@ -155,6 +158,7 @@ export interface ForgeAdapterRouteFamilyConfig {
 /** A2A, trigger, and schedule route family config. */
 export interface ForgeAutomationRouteFamilyConfig {
   a2a?: {
+    v1?: A2AV1Config;
     agentCardConfig: AgentCardConfig;
     taskStore?: A2ATaskStore;
     onTaskSubmitted?: A2ARoutesConfig["onTaskSubmitted"];

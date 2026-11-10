@@ -21,3 +21,8 @@ export type {
 
 export { createA2ARoutes } from '../routes/a2a.js'
 export type { A2ARoutesConfig } from '../routes/a2a.js'
+
+export { createA2AV1Handler } from './v1/request-handler.js'
+export type { A2AV1Config, A2AV1HandlerConfig, A2AV1Handler, AgentExecutor, TaskStore } from './v1/request-handler.js'
+export { toAgentCardV1 } from './v1/agent-card-v1.js'
+export type { AgentCardV1Options } from './v1/agent-card-v1.js'

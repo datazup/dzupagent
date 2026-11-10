@@ -10,7 +10,10 @@ import type { RateLimiterConfig } from "../../middleware/rate-limiter.js";
 
 import type { AppEnv } from "../../types.js";
 
+import type { A2AV1Handler } from "../../a2a/v1/request-handler.js";
+
 export interface A2ARoutesConfig {
+  v1?: A2AV1Handler;
   agentCard: AgentCard;
   taskStore: A2ATaskStore;
   /** Called after a task is created so the host can start execution. */

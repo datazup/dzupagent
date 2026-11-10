@@ -170,3 +170,8 @@ export { InMemoryClusterStore, DrizzleClusterStore } from './persistence/drizzle
 export type { ClusterStore, ClusterRecord, CreateClusterInput } from './persistence/drizzle-cluster-store.js'
 export { createClusterRoutes } from './routes/clusters.js'
 export type { ClusterRouteConfig } from './routes/clusters.js'
+
+export { createA2AV1Handler } from './a2a/v1/request-handler.js'
+export type { A2AV1Config, A2AV1HandlerConfig, A2AV1Handler, AgentExecutor, TaskStore } from './a2a/v1/request-handler.js'
+export { toAgentCardV1 } from './a2a/v1/agent-card-v1.js'
+export type { AgentCardV1Options } from './a2a/v1/agent-card-v1.js'

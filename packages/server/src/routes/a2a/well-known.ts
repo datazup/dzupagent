@@ -2,6 +2,8 @@
  * Agent card discovery routes: GET /.well-known/agent.json (legacy) and
  * GET /.well-known/agent-card.json (A2A v0.3.0)
  */
+import { AgentCard as SDKAgentCard } from "@a2a-js/sdk";
+import { isA2AV1Request } from "../../a2a/v1/agent-card-v1.js";
 import type { Hono } from "hono";
 import type { AppEnv } from "../../types.js";
 import type { A2ARoutesConfig } from "./helpers.js";
@@ -37,6 +39,14 @@ export function registerWellKnownRoutes(
     return c.json(config.agentCard);
   });
   app.get("/.well-known/agent-card.json", (c) => {
+    c.header("Vary", "A2A-Version");
+    if (config.v1 && isA2AV1Request(c.req.header("A2A-Version"))) {
+      return c.json({
+        ...(SDKAgentCard.toJSON(config.v1.card) as Record<string, unknown>),
+        supportedInterfaces: config.v1.card.supportedInterfaces,
+        capabilities: config.v1.card.capabilities,
+      });
+    }
     return c.json(toAgentCardV030(config.agentCard));
   });
 }

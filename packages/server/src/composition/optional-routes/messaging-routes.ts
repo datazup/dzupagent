@@ -10,6 +10,8 @@ import type { OptionalRoutesContext } from "./context.js";
 
 import type { MailboxStore } from "@dzupagent/agent/mailbox";
 import { createA2ARoutes } from "../../routes/a2a.js";
+import { createA2AV1Handler } from "../../a2a/v1/request-handler.js";
+import { isA2AV1Request, toAgentCardV1 } from "../../a2a/v1/agent-card-v1.js";
 import { buildAgentCard } from "../../a2a/agent-card.js";
 import { InMemoryA2ATaskStore } from "../../a2a/task-handler.js";
 import type { A2ATaskStore } from "../../a2a/task-handler.js";
@@ -43,6 +45,26 @@ export function mountA2ARoutes(
   const a2aConfig = runtimeConfig.a2a;
   const agentCard = buildAgentCard(a2aConfig.agentCardConfig);
 
+  const v1Enabled = Boolean(a2aConfig.v1 && effectiveAuth?.mode === "api-key" &&
+    effectiveAuth.validateKey && agentCard.authentication?.type !== "none");
+  if (a2aConfig.v1 && !v1Enabled) {
+    console.warn("[ForgeServer] A2A v1 not mounted: effective authentication is required");
+  }
+  const v1 = v1Enabled && a2aConfig.v1
+    ? createA2AV1Handler({
+        ...a2aConfig.v1,
+        agentCard: toAgentCardV1(agentCard, { authType: agentCard.authentication?.type ?? "bearer" }),
+      })
+    : undefined;
+  if (v1) {
+    app.use("/a2a", async (c, next) => {
+      await next();
+      if (isA2AV1Request(c.req.header("A2A-Version")) && c.res.status === 401) {
+        c.header("WWW-Authenticate", "Bearer");
+      }
+    });
+  }
+
   // Protect A2A routes (except /.well-known/agent.json which must remain
   // public per the A2A spec). The well-known path is mounted at the app
   // root below, so gating `/a2a/*` and `/a2a` leaves discovery
@@ -74,6 +96,7 @@ export function mountA2ARoutes(
   }
 
   const a2aRoutes = createA2ARoutes({
+    v1,
     agentCard,
     taskStore,
     onTaskSubmitted: a2aConfig.onTaskSubmitted,
