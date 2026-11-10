@@ -41,6 +41,45 @@ class DzupRequestHandler extends DefaultRequestHandler {
   }
 }
 
+function logAndSanitize(context: ServerCallContext, label: string, error: unknown): Error {
+  const route = context.state.get("dzup.a2a.route") as Context | undefined;
+  const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
+  const { safe } = logRouteError(requestInfo, label, error);
+  return new Error(safe);
+}
+
+/**
+ * The SDK copies any error raised while it processes events in the background
+ * (after a returnImmediately response) into a persisted FAILED task message.
+ * Store failures are the only host-supplied source of such errors, so they are
+ * logged and replaced by the generic safe message before the SDK sees them.
+ */
+function sanitizeTaskStore(store: TaskStore): TaskStore {
+  return {
+    async load(taskId, context) {
+      try {
+        return await store.load(taskId, context);
+      } catch (error) {
+        throw logAndSanitize(context, "a2a.v1.task-store", error);
+      }
+    },
+    async save(task, context) {
+      try {
+        return await store.save(task, context);
+      } catch (error) {
+        throw logAndSanitize(context, "a2a.v1.task-store", error);
+      }
+    },
+    async list(params, context) {
+      try {
+        return await store.list(params, context);
+      } catch (error) {
+        throw logAndSanitize(context, "a2a.v1.task-store", error);
+      }
+    },
+  };
+}
+
 export function createA2AV1Handler({
   agentCard,
   executor,
@@ -53,17 +92,14 @@ export function createA2AV1Handler({
       try {
         await executor.execute(request, bus);
       } catch (error) {
-        const route = request.context.state.get("dzup.a2a.route") as Context | undefined;
-        const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
-        const { safe } = logRouteError(requestInfo, "a2a.v1.execute", error);
-        throw new Error(safe);
+        throw logAndSanitize(request.context, "a2a.v1.execute", error);
       }
     },
     cancelTask: (taskId, bus) => executor.cancelTask(taskId, bus),
   };
   const requestHandler = new DzupRequestHandler(
     agentCard,
-    taskStore,
+    sanitizeTaskStore(taskStore),
     safeExecutor,
     new DefaultExecutionEventBusManager(dzupOwnerResolver),
     undefined,

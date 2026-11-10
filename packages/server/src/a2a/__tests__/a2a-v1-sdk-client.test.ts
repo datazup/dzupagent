@@ -3,7 +3,7 @@ import { serve, type ServerType } from '@hono/node-server'
 import { request as httpRequest } from 'node:http'
 import { Message, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent } from '@a2a-js/sdk'
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
-import { AgentEvent, ServerCallContext, type AgentExecutor, type ExecutionEventBus } from '@a2a-js/sdk/server'
+import { AgentEvent, InMemoryTaskStore, ServerCallContext, type AgentExecutor, type ExecutionEventBus, type TaskStore } from '@a2a-js/sdk/server'
 import { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus } from '@dzupagent/core'
 import { createForgeApp } from '../../app.js'
 import { VerifiedA2AUser, dzupOwnerResolver } from '../v1/identity.js'
@@ -370,5 +370,69 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
     expect(JSON.parse(text)).toMatchObject({ error: { code: -32603, message: 'Internal server error' } })
     expect(logs.mock.calls.length).toBeGreaterThan(0)
     expect(logs.mock.calls.some(([line]) => String(line).includes('a2a.v1.jsonrpc'))).toBe(true)
+  })
+
+  it('sanitizes a task-store failure that occurs after the immediate response', async () => {
+    expect(base.length).toBeGreaterThan(0)
+    const logs = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const inner = new InMemoryTaskStore(dzupOwnerResolver)
+    let failNextSave = false
+    const taskStore: TaskStore = {
+      load: (id, context) => inner.load(id, context),
+      save: async (task, context) => {
+        if (failNextSave) {
+          failNextSave = false
+          throw new Error('fixture-store-secret-detail')
+        }
+        return inner.save(task, context)
+      },
+      list: (params, context) => inner.list(params, context),
+    }
+    let bus: ExecutionEventBus | undefined
+    let release: () => void = () => {}
+    const executor: AgentExecutor = {
+      async execute(context, eventBus) {
+        bus = eventBus
+        eventBus.publish(AgentEvent.task(Task.fromJSON({
+          id: context.taskId, contextId: context.contextId,
+          status: { state: 'TASK_STATE_WORKING' }, history: [Message.toJSON(context.userMessage)],
+        })))
+        await new Promise<void>((resolve) => { release = resolve })
+      },
+      async cancelTask() {},
+    }
+    const isolated = createForgeApp({
+      runStore: new InMemoryRunStore(), agentStore: new InMemoryAgentStore(),
+      modelRegistry: new ModelRegistry(), eventBus: createEventBus(),
+      auth: { mode: 'api-key', validateKey: async () => ({ id: 'alice', tenantId: 'tenant-1', role: 'admin' }) },
+      a2a: {
+        agentCardConfig: { name: 'store-failure', description: 'Store failure', baseUrl: base, version: '1', agents: [] },
+        v1: { executor, taskStore },
+      },
+    })
+    type SendBody = { result?: { id?: string; contextId?: string; task?: { id?: string; contextId?: string } } }
+    const call = (method: string, params: unknown) => isolated.request('/a2a', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'A2A-Version': '1.0', Authorization: 'Bearer alice' },
+      body: JSON.stringify(envelope(method, params)),
+    })
+    const sent = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(true)))).json() as SendBody
+    const task = sent.result?.task ?? sent.result
+    const id = task?.id as string
+    expect(typeof id).toBe('string')
+    expect(JSON.stringify(sent)).not.toContain('FAILED')
+    expect(bus).toBeDefined()
+    failNextSave = true
+    bus!.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({
+      taskId: id, contextId: task?.contextId as string, status: { state: 'TASK_STATE_WORKING' },
+    })))
+    let text = ''
+    await vi.waitFor(async () => {
+      text = await (await call('GetTask', { id })).text()
+      expect(text).toContain('TASK_STATE_FAILED')
+    }, { timeout: 2000, interval: 10 })
+    release()
+    expect(text).toContain('TASK_STATE_FAILED')
+    expect(text).not.toContain('fixture-store-secret-detail')
+    expect(JSON.stringify(logs.mock.calls)).toContain('a2a.v1.task-store')
   })
 })
