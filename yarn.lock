@@ -5,6 +5,40 @@ __metadata:
   version: 10
   cacheKey: 10c0
 
+"@a2a-js/sdk@npm:1.3.0":
+  version: 1.3.0
+  resolution: "@a2a-js/sdk@npm:1.3.0"
+  dependencies:
+    jose: "npm:^6.2.3"
+  peerDependencies:
+    "@bufbuild/protobuf": ^2.10.2
+    "@grpc/grpc-js": ^1.11.0
+    better-sqlite3: ^12.0.0 || ^13.0.0
+    express: ^4.21.2 || ^5.1.0
+    kysely: ^0.28.17 || ^0.29.0
+    mysql2: ^3.0.0
+    pg: ^8.0.0
+  peerDependenciesMeta:
+    "@bufbuild/protobuf":
+      optional: true
+    "@grpc/grpc-js":
+      optional: true
+    better-sqlite3:
+      optional: true
+    express:
+      optional: true
+    kysely:
+      optional: true
+    mysql2:
+      optional: true
+    pg:
+      optional: true
+  bin:
+    a2a-db: dist/cli/a2a_db.js
+  checksum: 10c0/a90ded15bac9d77b3e56ba73fb6c6be218b0b8320cdc7b01156c467e111bd1f9ba45c1525817d662ea4cfe041528b32def97e2ecd8a26d5d134549afa7229296
+  languageName: node
+  linkType: hard
+
 "@ampproject/remapping@npm:^2.3.0":
   version: 2.3.0
   resolution: "@ampproject/remapping@npm:2.3.0"
@@ -1814,6 +1848,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/server@workspace:packages/server"
   dependencies:
+    "@a2a-js/sdk": "npm:1.3.0"
     "@dzupagent/agent": "npm:0.2.0"
     "@dzupagent/agent-adapters": "npm:0.2.0"
     "@dzupagent/app-tools": "npm:0.2.0"
@@ -8966,6 +9001,13 @@ __metadata:
   version: 6.2.7
   resolution: "jose@npm:6.2.7"
   checksum: 10c0/276edc76b4b1c6056e4c4181f3039d659d5ca7e15b971d61b3b65f78b3585ac422c62452a04d6838dbb2e085083a916841b8a75dd29f28e7c281a875a2587e67
+  languageName: node
+  linkType: hard
+
+"jose@npm:^6.2.3":
+  version: 6.2.17
+  resolution: "jose@npm:6.2.17"
+  checksum: 10c0/1a00d44656e38664c54a8b2d903b6c947b3fc4275f7ede2462f74e50ce320359ea324deba15652dcc158c14ed99135a2382a4c5718be350923a9e583bea727db
   languageName: node
   linkType: hard
 

@@ -441,3 +441,75 @@ describe('A2A v0.3.0 message/send with store access', () => {
 const BASE_CARD = '{"name":"interop-server","description":"Interop fixture","url":"http://localhost","version":"1.2.3","capabilities":[{"name":"echo-agent","description":"Echoes input","inputSchema":{"type":"object","properties":{}}}],"skills":[{"name":"echo-agent","description":"Echoes input"}]}'
 const BASE_SENT = '{"jsonrpc":"2.0","id":1,"result":{"agentName":"echo-agent","input":"hello","state":"submitted","ownerId":null,"tenantId":null,"id":"a2a-task-1","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","messages":[],"artifacts":[]}}'
 const BASE_GOT = '{"jsonrpc":"2.0","id":2,"result":{"agentName":"echo-agent","input":"hello","state":"submitted","ownerId":null,"tenantId":null,"id":"a2a-task-1","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","messages":[{"role":"user","parts":[{"type":"text","text":"hello"}]}],"artifacts":[]}}'
+
+
+/** M1 append-only coverage: v1 and both historical dialects share one app. */
+describe('A2A legacy byte pins with SDK v1 enabled', () => {
+  afterEach(() => vi.useRealTimers())
+
+  async function enabledFixture() {
+    const { createA2AV1Handler } = await import('../v1/request-handler.js')
+    const { toAgentCardV1 } = await import('../v1/agent-card-v1.js')
+    let executions = 0
+    const agentCard = buildAgentCard({
+      name: 'interop-server', description: 'Interop fixture', baseUrl: 'http://localhost', version: '1.2.3',
+      agents: [{ name: 'echo-agent', description: 'Echoes input' }],
+    })
+    const v1 = createA2AV1Handler({
+      agentCard: toAgentCardV1(agentCard, { authType: 'bearer' }),
+      // Deterministic in-test fake: v1 probe returns the input message.
+      executor: {
+        async execute(context, bus) {
+          executions++
+          bus.publish({ kind: 'message', data: context.userMessage })
+        },
+        async cancelTask() {},
+      },
+    })
+    const app = new Hono()
+    app.use('/a2a', async (c, next) => {
+      if (c.req.header('Authorization') === 'Bearer fixture') {
+        c.set('apiKey' as never, { id: 'alice', tenantId: 'tenant-1' } as never)
+      }
+      await next()
+    })
+    app.route('', createA2ARoutes({ agentCard, taskStore: new InMemoryA2ATaskStore(), v1 }))
+    const post = async (body: unknown, version?: string) => (await app.request('/a2a', {
+      method: 'POST', headers: { 'content-type': 'application/json', ...(version === undefined ? {} : { 'A2A-Version': version }) },
+      body: JSON.stringify(body),
+    })).text()
+    const probe = await app.request('/a2a', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'A2A-Version': '1.0', Authorization: 'Bearer fixture' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'SendMessage', params: { message: { messageId: 'v1-probe', role: 'ROLE_USER', parts: [{ text: 'v1 is active' }] } } }),
+    })
+    expect(await probe.json()).toMatchObject({ result: { message: { messageId: 'v1-probe' } } })
+    expect(executions).toBe(1)
+    return { app, post, executions: () => executions }
+  }
+
+  it('preserves the literal legacy discovery and tasks/send to tasks/get bytes with v1 enabled', async () => {
+    expect(BASE_CARD.length).toBeGreaterThan(0)
+    const { app, post, executions } = await enabledFixture()
+    vi.useFakeTimers({ now: new Date('2026-01-01T00:00:00.000Z') })
+    expect(await (await app.request('/.well-known/agent.json')).text()).toBe(BASE_CARD)
+    expect(await post({ jsonrpc: '2.0', id: 1, method: 'tasks/send', params: { agentName: 'echo-agent', message: textMessage('hello') } })).toBe(BASE_SENT)
+    expect(await post({ jsonrpc: '2.0', id: 2, method: 'tasks/get', params: { id: 'a2a-task-1' } })).toBe(BASE_GOT)
+    expect(executions()).toBe(1)
+  })
+
+  it('preserves literal v0.3 card and message/send bytes for absent empty and 0.3 headers with v1 enabled', async () => {
+    expect(BASE_V030_CARD_M1.length).toBeGreaterThan(0)
+    for (const version of [undefined, '', '0.3']) {
+      const { app, post, executions } = await enabledFixture()
+      vi.useFakeTimers({ now: new Date('2026-01-01T00:00:00.000Z') })
+      const response = await app.request('/.well-known/agent-card.json', { headers: version === undefined ? {} : { 'A2A-Version': version } })
+      expect(await response.text()).toBe(BASE_V030_CARD_M1)
+      expect(await post({ jsonrpc: '2.0', id: 3, method: 'message/send', params: { message: v030Message('hello', 'm-legacy-pin'), metadata: { agentName: 'echo-agent' } } }, version)).toBe(BASE_V030_SENT_M1)
+      expect(executions()).toBe(1)
+      vi.useRealTimers()
+    }
+  })
+})
+
+const BASE_V030_CARD_M1 = '{"protocolVersion":"0.3.0","name":"interop-server","description":"Interop fixture","url":"http://localhost/a2a","preferredTransport":"JSONRPC","version":"1.2.3","capabilities":{"streaming":false,"pushNotifications":false,"stateTransitionHistory":false},"defaultInputModes":["text/plain"],"defaultOutputModes":["text/plain"],"skills":[{"id":"echo-agent","name":"echo-agent","description":"Echoes input","tags":[]}]}'
+const BASE_V030_SENT_M1 = '{"jsonrpc":"2.0","id":3,"result":{"kind":"task","id":"a2a-task-1","contextId":"a2a-task-1","status":{"state":"submitted","timestamp":"2026-01-01T00:00:00.000Z"},"history":[{"kind":"message","messageId":"a2a-task-1-m0","role":"user","parts":[{"kind":"text","text":"hello"}]}],"artifacts":[],"metadata":{"agentName":"echo-agent"}}}'

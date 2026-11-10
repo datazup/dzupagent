@@ -23,6 +23,9 @@ import { handleMessageSend } from "./jsonrpc-message-send.js";
 import { getSerializedJsonSizeBytes } from "../../validation/route-validator.js";
 import { logRouteError } from "../route-error.js";
 
+import { isA2AV1Request } from "../../a2a/v1/agent-card-v1.js";
+import { handleA2AV1JsonRpc } from "../../a2a/v1/hono-jsonrpc.js";
+
 const A2A_JSON_RPC_PARAMS_MAX_BYTES = 256 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -92,6 +95,9 @@ export function registerJsonRpcRoute(
   config: A2ARoutesConfig
 ): void {
   app.post("/a2a", async (c) => {
+    if (config.v1 && isA2AV1Request(c.req.header("A2A-Version"))) {
+      return handleA2AV1JsonRpc(c, config.v1);
+    }
     let body: unknown;
     try {
       body = await c.req.json();
