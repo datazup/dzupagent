@@ -435,4 +435,145 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
     expect(text).not.toContain('fixture-store-secret-detail')
     expect(JSON.stringify(logs.mock.calls)).toContain('a2a.v1.task-store')
   })
+
+  describe('background failure text never carries host-supplied detail', () => {
+    type RpcBody = { result?: { id?: string; contextId?: string; task?: { id?: string; contextId?: string } } }
+    const poison = (secret: string) => {
+      const metadata: Record<string, unknown> = {}
+      Object.defineProperty(metadata, 'leak', { enumerable: true, get: () => { throw new Error(secret) } })
+      return metadata
+    }
+    function harness(options: { executor: AgentExecutor; taskStore?: TaskStore }) {
+      const app2 = createForgeApp({
+        runStore: new InMemoryRunStore(), agentStore: new InMemoryAgentStore(),
+        modelRegistry: new ModelRegistry(), eventBus: createEventBus(),
+        auth: { mode: 'api-key', validateKey: async () => ({ id: 'alice', tenantId: 'tenant-1', role: 'admin' }) },
+        a2a: {
+          agentCardConfig: { name: 'bg-failure', description: 'Background failure', baseUrl: base, version: '1', agents: [] },
+          v1: { executor: options.executor, ...(options.taskStore ? { taskStore: options.taskStore } : {}) },
+        },
+      })
+      const call = (method: string, params: unknown) => app2.request('/a2a', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'A2A-Version': '1.0', Authorization: 'Bearer alice' },
+        body: JSON.stringify(envelope(method, params)),
+      })
+      return call
+    }
+    async function startImmediate(call: ReturnType<typeof harness>) {
+      const sent = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(true)))).json() as RpcBody
+      const task = sent.result?.task ?? sent.result
+      expect(typeof task?.id).toBe('string')
+      expect(JSON.stringify(sent)).not.toContain('FAILED')
+      return task as { id: string; contextId: string }
+    }
+    const settle = async () => { for (let i = 0; i < 5; i += 1) await new Promise<void>((resolve) => setImmediate(resolve)) }
+    const SDK_FAILURE = 'Event processing loop failed:'
+
+    function gatedExecutor(afterGate: (bus: ExecutionEventBus, context: { taskId: string; contextId: string }) => void | Promise<void>) {
+      let release: () => void = () => {}
+      const executor: AgentExecutor = {
+        async execute(context, eventBus) {
+          eventBus.publish(AgentEvent.task(Task.fromJSON({
+            id: context.taskId, contextId: context.contextId,
+            status: { state: 'TASK_STATE_WORKING' }, history: [Message.toJSON(context.userMessage)],
+          })))
+          await new Promise<void>((resolve) => { release = resolve })
+          await afterGate(eventBus, context)
+        },
+        async cancelTask() {},
+      }
+      return { executor, release: () => release() }
+    }
+
+    it('event with a throwing metadata getter published by the executor yields only the generic failure', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const secret = 'fixture-event-secret-detail'
+      const gated = gatedExecutor((bus, ids) => {
+        bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({
+          taskId: ids.taskId, contextId: ids.contextId, status: { state: 'TASK_STATE_WORKING' }, metadata: poison(secret),
+        })))
+      })
+      const call = harness({ executor: gated.executor })
+      const task = await startImmediate(call)
+      gated.release()
+      await settle()
+      const text = await (await call('GetTask', { id: task.id })).text()
+      expect(text).not.toContain(secret)
+      if (text.includes(SDK_FAILURE)) expect(text).toContain('TASK_STATE_FAILED')
+    })
+
+    it('event with a throwing metadata getter published during CancelTask never reaches a persisted task', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const secret = 'fixture-cancel-secret-detail'
+      let release: () => void = () => {}
+      const executor: AgentExecutor = {
+        async execute(context, eventBus) {
+          eventBus.publish(AgentEvent.task(Task.fromJSON({
+            id: context.taskId, contextId: context.contextId,
+            status: { state: 'TASK_STATE_WORKING' }, history: [Message.toJSON(context.userMessage)],
+          })))
+          await new Promise<void>((resolve) => { release = resolve })
+        },
+        async cancelTask(taskId, eventBus) {
+          eventBus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({
+            taskId, contextId: 'ctx', status: { state: 'TASK_STATE_CANCELED' }, metadata: poison(secret),
+          })))
+        },
+      }
+      const call = harness({ executor })
+      const task = await startImmediate(call)
+      const cancelText = await (await call('CancelTask', { id: task.id })).text()
+      await settle()
+      const text = await (await call('GetTask', { id: task.id })).text()
+      release()
+      expect(cancelText).not.toContain(secret)
+      expect(text).not.toContain(secret)
+    })
+
+    it.each([
+      ['store save failure', 'fixture-class-store-detail'],
+      ['executor failure after the first event', 'fixture-class-executor-detail'],
+      ['executor-published status update whose message already carries SDK failure text', 'fixture-class-spoof-detail'],
+    ])('%s: persisted task and history carry only the generic message', async (route, secret) => {
+      expect(route.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const inner = new InMemoryTaskStore(dzupOwnerResolver)
+      let failNextSave = false
+      const taskStore: TaskStore = {
+        load: (id, context) => inner.load(id, context),
+        save: async (task, context) => {
+          if (failNextSave) { failNextSave = false; throw new Error(secret) }
+          return inner.save(task, context)
+        },
+        list: (params, context) => inner.list(params, context),
+      }
+      const gated = gatedExecutor((bus, ids) => {
+        if (route.startsWith('executor failure')) throw new Error(secret)
+        if (route.startsWith('executor-published')) {
+          bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({
+            taskId: ids.taskId, contextId: ids.contextId,
+            status: { state: 'TASK_STATE_FAILED', message: { messageId: 'spoof', role: 'ROLE_AGENT', parts: [{ text: `${SDK_FAILURE} ${secret}`, mediaType: 'text/plain' }] } },
+          })))
+        } else {
+          failNextSave = true
+          bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({
+            taskId: ids.taskId, contextId: ids.contextId, status: { state: 'TASK_STATE_WORKING' },
+          })))
+        }
+      })
+      const call = harness({ executor: gated.executor, taskStore })
+      const task = await startImmediate(call)
+      gated.release()
+      await settle()
+      let text = ''
+      await vi.waitFor(async () => {
+        text = await (await call('GetTask', { id: task.id })).text()
+        expect(text).toContain('TASK_STATE_FAILED')
+      }, { timeout: 2000, interval: 10 })
+      expect(text).not.toContain(secret)
+      expect(text).toContain('Internal server error')
+    })
+  })
 })

@@ -1,5 +1,5 @@
 import { TaskState } from "@a2a-js/sdk";
-import type { AgentCard, CancelTaskRequest } from "@a2a-js/sdk";
+import type { AgentCard, CancelTaskRequest, Task } from "@a2a-js/sdk";
 import { JsonRpcTaskNotCancelableError } from "@a2a-js/sdk/errors";
 import {
   DefaultExecutionEventBusManager,
@@ -7,7 +7,7 @@ import {
   InMemoryTaskStore,
   JsonRpcTransportHandler,
 } from "@a2a-js/sdk/server";
-import type { AgentExecutor, ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
+import type { AgentExecutor, ExecutionEventBus, ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
 import type { Context } from "hono";
 import { logRouteError } from "../../routes/route-error.js";
 import { dzupOwnerResolver } from "./identity.js";
@@ -41,11 +41,60 @@ class DzupRequestHandler extends DefaultRequestHandler {
   }
 }
 
-function logAndSanitize(context: ServerCallContext, label: string, error: unknown): Error {
-  const route = context.state.get("dzup.a2a.route") as Context | undefined;
+function logAndSanitize(context: ServerCallContext | undefined, label: string, error: unknown): Error {
+  const route = context?.state.get("dzup.a2a.route") as Context | undefined;
   const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
   const { safe } = logRouteError(requestInfo, label, error);
   return new Error(safe);
+}
+
+const SDK_FAILURE_PREFIX = "Event processing loop failed:";
+
+/**
+ * Single choke point: the SDK persists "Event processing loop failed: <message>"
+ * into FAILED status and history. Whatever raised the message, a persisted copy
+ * only ever carries the generic safe text; the original is logged first.
+ * Mutates in place so the SDK's in-memory current task matches what is stored.
+ */
+function redactSdkFailureText(task: Task, context: ServerCallContext): void {
+  const messages = [task.status?.message, ...(task.history ?? [])];
+  for (const message of messages) {
+    for (const part of message?.parts ?? []) {
+      const content = part.content;
+      if (content?.$case === "text" && content.value.startsWith(SDK_FAILURE_PREFIX)) {
+        const error = logAndSanitize(context, "a2a.v1.persisted-failure", new Error(content.value));
+        content.value = `${SDK_FAILURE_PREFIX} ${error.message}`;
+      }
+    }
+  }
+}
+
+/**
+ * Events are detached (structured-cloned) at the bus boundary so a hostile
+ * getter or unclonable value fails here, inside the executor call, where the
+ * failure is logged and replaced by the generic message, not later inside the
+ * SDK's background loop.
+ */
+function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string): ExecutionEventBus {
+  const wrapped: ExecutionEventBus = {
+    publish(event) {
+      let detached = event;
+      try {
+        if (typeof event === "object" && event !== null && "data" in event) {
+          detached = { ...event, data: structuredClone((event as { data: unknown }).data) } as typeof event;
+        }
+      } catch (error) {
+        throw logAndSanitize(context, label, error);
+      }
+      bus.publish(detached);
+    },
+    on(eventName: never, listener: never) { bus.on(eventName, listener); return wrapped; },
+    off(eventName: never, listener: never) { bus.off(eventName, listener); return wrapped; },
+    once(eventName: never, listener: never) { bus.once(eventName, listener); return wrapped; },
+    removeAllListeners(eventName) { bus.removeAllListeners(eventName); return wrapped; },
+    finished() { bus.finished(); },
+  };
+  return wrapped;
 }
 
 /**
@@ -65,6 +114,7 @@ function sanitizeTaskStore(store: TaskStore): TaskStore {
     },
     async save(task, context) {
       try {
+        redactSdkFailureText(task, context);
         return await store.save(task, context);
       } catch (error) {
         throw logAndSanitize(context, "a2a.v1.task-store", error);
@@ -90,12 +140,18 @@ export function createA2AV1Handler({
   const safeExecutor: AgentExecutor = {
     async execute(request, bus) {
       try {
-        await executor.execute(request, bus);
+        await executor.execute(request, sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
       } catch (error) {
         throw logAndSanitize(request.context, "a2a.v1.execute", error);
       }
     },
-    cancelTask: (taskId, bus) => executor.cancelTask(taskId, bus),
+    async cancelTask(taskId, bus) {
+      try {
+        await executor.cancelTask(taskId, sanitizeEventBus(bus, undefined, "a2a.v1.cancel"));
+      } catch (error) {
+        throw logAndSanitize(undefined, "a2a.v1.cancel", error);
+      }
+    },
   };
   const requestHandler = new DzupRequestHandler(
     agentCard,
