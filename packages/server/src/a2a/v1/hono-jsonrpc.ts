@@ -26,6 +26,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Values the SDK decoder would read for an optional field: proto3 JSON treats
+ * null as absent, and the SDK also accepts the snake_case alias of each name.
+ */
+function presentValues(record: Record<string, unknown>, ...names: string[]): unknown[] {
+  return names.map((name) => record[name]).filter((value) => value !== undefined && value !== null);
+}
+
+/**
+ * Optional fields the SDK would otherwise coerce (String(), Number()) or silently
+ * drop. Returns false when any present value has the wrong type.
+ */
+function validOptionalSendFields(message: Record<string, unknown>, configuration: unknown): boolean {
+  const ids = presentValues(message, "contextId", "context_id", "taskId", "task_id");
+  if (!ids.every((value) => typeof value === "string")) return false;
+  if (!presentValues(message, "metadata").every(isRecord)) return false;
+  if (!isRecord(configuration)) return true;
+  const lengths = presentValues(configuration, "historyLength", "history_length");
+  if (!lengths.every((value) => Number.isInteger(value) && (value as number) >= 0)) return false;
+  return presentValues(configuration, "acceptedOutputModes", "accepted_output_modes")
+    .every((modes) => Array.isArray(modes) && modes.every((mode) => typeof mode === "string"));
+}
+
 /** Transport glue only: all task execution, serialization and storage use SDK ports. */
 export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): Promise<Response> {
   const scope = getCallerScope(c);
@@ -81,6 +104,10 @@ export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): 
       (!Number.isInteger(cleanParams.historyLength) || Number(cleanParams.historyLength) < 0)) {
     return fail(-32602, "Invalid history length");
   }
+  // GetTask's decoder also reads the snake_case alias and would Number()-coerce it.
+  if (!presentValues(cleanParams, "history_length").every((value) => Number.isInteger(value) && (value as number) >= 0)) {
+    return fail(-32602, "Invalid method parameters");
+  }
   if (request.method === "SendStreamingMessage" || request.method === "SubscribeToTask") {
     return fail(-32004, "Streaming is not supported");
   }
@@ -100,6 +127,7 @@ export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): 
         !Array.isArray(message.parts) || message.parts.length === 0) {
       return fail(-32602, "Invalid message");
     }
+    if (!validOptionalSendFields(message, configuration)) return fail(-32602, "Invalid method parameters");
     const parts: Record<string, unknown>[] = [];
     for (const part of message.parts) {
       if (!isRecord(part)) return fail(-32602, "Invalid message part");
