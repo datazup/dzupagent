@@ -722,4 +722,234 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
       expect(text).toContain('TASK_STATE_COMPLETED')
     })
   })
+
+  // A2A-M1-FOLLOWUPS-USER1-20261110-R1: appended; existing cases above are unchanged.
+  describe('optional SendMessage and GetTask fields are validated before the SDK decodes them', () => {
+    type RpcEnvelope = { id?: unknown; result?: unknown; error?: { code: number; message: string; data?: unknown } }
+    const optionalMessage = { messageId: 'optional-fields', role: 'ROLE_USER', parts: [{ text: 'hello', mediaType: 'text/plain' }] }
+    const FIXED_PARAMS_TEXT = 'Invalid method parameters'
+
+    it.each([
+      ['message.contextId as a number', 'SendMessage', { message: { ...optionalMessage, contextId: 4242001 } }, '4242001'],
+      ['message.contextId as an object', 'SendMessage', { message: { ...optionalMessage, contextId: { probe: 'fixture-context-object' } } }, 'fixture-context-object'],
+      ['message.context_id alias as a number', 'SendMessage', { message: { ...optionalMessage, context_id: 4242002 } }, '4242002'],
+      ['message.taskId as a number', 'SendMessage', { message: { ...optionalMessage, taskId: 4242003 } }, '4242003'],
+      ['message.task_id alias as an array', 'SendMessage', { message: { ...optionalMessage, task_id: ['fixture-task-array'] } }, 'fixture-task-array'],
+      ['configuration.historyLength negative', 'SendMessage', { message: optionalMessage, configuration: { historyLength: -4242004 } }, '4242004'],
+      ['configuration.historyLength fractional', 'SendMessage', { message: optionalMessage, configuration: { historyLength: 4242.5 } }, '4242.5'],
+      ['configuration.historyLength as a string', 'SendMessage', { message: optionalMessage, configuration: { historyLength: 'fixture-history-string' } }, 'fixture-history-string'],
+      ['configuration.history_length alias negative', 'SendMessage', { message: optionalMessage, configuration: { history_length: -4242005 } }, '4242005'],
+      ['configuration.acceptedOutputModes as a string', 'SendMessage', { message: optionalMessage, configuration: { acceptedOutputModes: 'fixture-mode-string' } }, 'fixture-mode-string'],
+      ['configuration.acceptedOutputModes with a non-string entry', 'SendMessage', { message: optionalMessage, configuration: { acceptedOutputModes: ['text/plain', 4242006] } }, '4242006'],
+      ['configuration.accepted_output_modes alias as a string', 'SendMessage', { message: optionalMessage, configuration: { accepted_output_modes: 'fixture-alias-mode' } }, 'fixture-alias-mode'],
+      ['message.metadata as an array', 'SendMessage', { message: { ...optionalMessage, metadata: ['fixture-metadata-array'] } }, 'fixture-metadata-array'],
+      ['message.metadata as a string', 'SendMessage', { message: { ...optionalMessage, metadata: 'fixture-metadata-string' } }, 'fixture-metadata-string'],
+      ['GetTask history_length alias as a string', 'GetTask', { id: 'fixture-get-task', history_length: 'fixture-get-history' }, 'fixture-get-history'],
+    ])('rejects %s with -32602 and fixed text over HTTP', async (_label, method, params, probe) => {
+      expect(base.length).toBeGreaterThan(0)
+      const execute = vi.spyOn(fake.executor, 'execute')
+      const response = await wire(envelope(method, params))
+      expect(response.status).toBe(200)
+      const text = await response.text()
+      const body = JSON.parse(text) as RpcEnvelope
+      expect(body.result).toBeUndefined()
+      expect(body.error).toEqual({ code: -32602, message: FIXED_PARAMS_TEXT })
+      expect(text).not.toContain(probe)
+      expect(execute).not.toHaveBeenCalled()
+    })
+
+    it('valid optional fields still succeed through the SDK client and the raw HTTP route', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const result = await (await clientFor()).sendMessage(SendMessageRequest.fromJSON({
+        message: { ...optionalMessage, contextId: 'fixture-context', metadata: { fixture: 'ok' } },
+        configuration: { historyLength: 2, acceptedOutputModes: ['text/plain'], returnImmediately: false },
+      }))
+      expect('id' in result).toBe(true)
+      if (!('id' in result)) throw new Error('Expected task from fake executor')
+      expect(result.contextId).toBe('fixture-context')
+      expect(result.status?.state).toBe(TaskState.TASK_STATE_COMPLETED)
+
+      // Null is absent in proto3 JSON; valid snake_case aliases and a zero history length are accepted.
+      const raw = await (await wire(envelope('SendMessage', {
+        message: { ...optionalMessage, messageId: 'optional-raw', context_id: 'fixture-raw-context', taskId: null, metadata: {} },
+        configuration: { historyLength: null, history_length: 0, accepted_output_modes: [] },
+      }))).json() as { result?: { task?: { id?: string; contextId?: string; status?: { state?: string } } } }
+      expect(raw.result?.task?.contextId).toBe('fixture-raw-context')
+      expect(raw.result?.task?.status?.state).toBe('TASK_STATE_COMPLETED')
+      const got = await (await wire(envelope('GetTask', { id: raw.result?.task?.id, history_length: 1 }))).json() as { result?: { id?: string } }
+      expect(got.result?.id).toBe(raw.result?.task?.id)
+
+      // A well-typed taskId passes validation and reaches the SDK, which owns the not-found answer.
+      expect(await code(envelope('SendMessage', { message: { ...optionalMessage, messageId: 'optional-unknown-task', taskId: 'fixture-unknown-task' } }))).toBe(-32001)
+    })
+  })
+
+  // Strengthened pins for the landed M1 round-4 fixes (c4d570b7). Each passes on
+  // e75cb19e and fails when its fix is reverted (mutations recorded in the lane handoff).
+  describe('M1 round-4 fixes stay pinned', () => {
+    type RpcBody = { result?: { id?: string; contextId?: string; task?: { id?: string; contextId?: string } }; error?: { code: number; message: string } }
+    function isolatedApp(executor: AgentExecutor, taskStore?: TaskStore) {
+      const app3 = createForgeApp({
+        runStore: new InMemoryRunStore(), agentStore: new InMemoryAgentStore(),
+        modelRegistry: new ModelRegistry(), eventBus: createEventBus(),
+        auth: { mode: 'api-key', validateKey: async () => ({ id: 'alice', tenantId: 'tenant-1', role: 'admin' }) },
+        a2a: {
+          agentCardConfig: { name: 'round4-pins', description: 'Round-4 pins', baseUrl: base, version: '1', agents: [] },
+          v1: { executor, ...(taskStore ? { taskStore } : {}) },
+        },
+      })
+      return (method: string, params: unknown) => app3.request('/a2a', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'A2A-Version': '1.0', Authorization: 'Bearer alice' },
+        body: JSON.stringify(envelope(method, params)),
+      })
+    }
+    const logged = (spy: { mock: { calls: unknown[][] } }, operation: string) =>
+      spy.mock.calls.some(([line]) => String(line).includes(`"operation":"${operation}"`))
+    async function failedTaskText(call: ReturnType<typeof isolatedApp>, id: string) {
+      let text = ''
+      await vi.waitFor(async () => {
+        text = await (await call('GetTask', { id })).text()
+        expect(text).toContain('TASK_STATE_FAILED')
+      }, { timeout: 2000, interval: 10 })
+      return text
+    }
+
+    it('role: non-string roles are -32602 "Invalid message" over HTTP, never coerced, logged or executed', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const logs = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const execute = vi.spyOn(fake.executor, 'execute')
+      for (const role of [{ toString: null, valueOf: null }, ['ROLE_USER'], ['ROLE_AGENT'], 7, null, true]) {
+        const response = await wire(envelope('SendMessage', { message: { messageId: 'role-pin', role, parts: [{ text: 'hi', mediaType: 'text/plain' }] } }))
+        expect(response.status).toBe(200)
+        expect((await response.json() as RpcBody).error).toEqual({ code: -32602, message: 'Invalid message' })
+      }
+      expect(execute).not.toHaveBeenCalled()
+      expect(logs).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['an artifact update with a url part', 'artifactUpdate'],
+      ['a task event whose history carries a data part', 'task'],
+    ])('text-only events: %s fails the task with the generic text and an a2a.v1.execute log', async (_label, kind) => {
+      expect(base.length).toBeGreaterThan(0)
+      const logs = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const { TaskArtifactUpdateEvent } = await import('@a2a-js/sdk')
+      let release: () => void = () => {}
+      const executor: AgentExecutor = {
+        async execute(context, bus) {
+          bus.publish(AgentEvent.task(Task.fromJSON({
+            id: context.taskId, contextId: context.contextId,
+            status: { state: 'TASK_STATE_WORKING' }, history: [Message.toJSON(context.userMessage)],
+          })))
+          await new Promise<void>((resolve) => { release = resolve })
+          if (kind === 'artifactUpdate') {
+            bus.publish(AgentEvent.artifactUpdate(TaskArtifactUpdateEvent.fromJSON({
+              taskId: context.taskId, contextId: context.contextId,
+              artifact: { artifactId: 'pin-artifact', parts: [{ url: 'https://pin-leak.example/a', mediaType: 'application/pdf' }] },
+            })))
+          } else {
+            bus.publish(AgentEvent.task(Task.fromJSON({
+              id: context.taskId, contextId: context.contextId, status: { state: 'TASK_STATE_WORKING' },
+              history: [{ messageId: 'pin-data', role: 'ROLE_AGENT', parts: [{ data: { leak: 'fixture-pin-data' }, mediaType: 'application/json' }] }],
+            })))
+          }
+        },
+        async cancelTask() {},
+      }
+      const call = isolatedApp(executor)
+      const sent = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(true)))).json() as RpcBody
+      const id = (sent.result?.task ?? sent.result)?.id as string
+      expect(typeof id).toBe('string')
+      release()
+      const text = await failedTaskText(call, id)
+      expect(text).toContain('Internal server error')
+      expect(text).not.toContain('pin-leak.example')
+      expect(text).not.toContain('fixture-pin-data')
+      expect(logged(logs, 'a2a.v1.execute')).toBe(true)
+    })
+
+    it('store load: an unclonable loaded task is a task-store failure with the exact generic -32603 envelope', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const logs = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const inner = new InMemoryTaskStore(dzupOwnerResolver)
+      let poisonLoads = false
+      const taskStore: TaskStore = {
+        load: async (id, context) => {
+          const loaded = await inner.load(id, context)
+          if (!loaded || !poisonLoads) return loaded
+          return { ...loaded, metadata: { toJSON: () => { throw new ClientSafeError('fixture-pin-load-secret') } } }
+        },
+        save: (task, context) => inner.save(task, context),
+        list: (params, context) => inner.list(params, context),
+      }
+      const call = isolatedApp(fake.executor, taskStore)
+      const sent = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(false)))).json() as RpcBody
+      const id = (sent.result?.task ?? sent.result)?.id as string
+      expect(typeof id).toBe('string')
+      poisonLoads = true
+      logs.mockClear()
+      const text = await (await call('GetTask', { id })).text()
+      expect(text).not.toContain('fixture-pin-load-secret')
+      expect((JSON.parse(text) as RpcBody).error).toEqual({ code: -32603, message: 'Internal server error' })
+      expect(logged(logs, 'a2a.v1.task-store')).toBe(true)
+    })
+
+    it('request context: the executor mutates only its copy; the SDK still records the original user message', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const executor: AgentExecutor = {
+        async execute(context, bus) {
+          bus.publish(AgentEvent.task(Task.fromJSON({
+            id: context.taskId, contextId: context.contextId, status: { state: 'TASK_STATE_WORKING' },
+          })))
+          const part = context.userMessage.parts[0]?.content
+          if (part?.$case === 'text') part.value = 'fixture-pin-mutated-text'
+          Object.defineProperty(context.userMessage, 'messageId', { get: () => { throw new Error('fixture-pin-ctx-secret') } })
+          throw new Error('fixture-pin-boom')
+        },
+        async cancelTask() {},
+      }
+      const call = isolatedApp(executor)
+      const sent = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(true)))).json() as RpcBody
+      const id = (sent.result?.task ?? sent.result)?.id as string
+      expect(typeof id).toBe('string')
+      const text = await failedTaskText(call, id)
+      expect(text).not.toContain('fixture-pin-ctx-secret')
+      expect(text).not.toContain('fixture-pin-mutated-text')
+      expect(text).not.toContain('fixture-pin-boom')
+      expect(text).toContain('Internal server error')
+      expect(text).toContain('"messageId":"fixture-message"')
+    })
+
+    it('bus listeners: each listener gets a detached copy and its throw is logged, not dispatched', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const logs = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let seen = 0
+      const executor: AgentExecutor = {
+        async execute(context, bus) {
+          bus.on('event', (event: { data?: { status?: { state?: unknown }; history?: unknown[] } }) => {
+            seen += 1
+            if (event.data?.status) event.data.status.state = TaskState.TASK_STATE_REJECTED
+            if (event.data) event.data.history = []
+            throw new Error('fixture-pin-listener-secret')
+          })
+          bus.publish(AgentEvent.task(Task.fromJSON({
+            id: context.taskId, contextId: context.contextId,
+            status: { state: 'TASK_STATE_COMPLETED' }, history: [Message.toJSON(context.userMessage)],
+          })))
+        },
+        async cancelTask() {},
+      }
+      const call = isolatedApp(executor)
+      const sent = await (await call('SendMessage', SendMessageRequest.toJSON(sendParams(false)))).text()
+      expect(seen).toBeGreaterThan(0)
+      expect(sent).not.toContain('fixture-pin-listener-secret')
+      const id = ((JSON.parse(sent) as RpcBody).result?.task ?? (JSON.parse(sent) as RpcBody).result)?.id as string
+      const text = await (await call('GetTask', { id })).text()
+      expect(text).toContain('TASK_STATE_COMPLETED')
+      expect(text).not.toContain('TASK_STATE_REJECTED')
+      expect(text).toContain('"messageId":"fixture-message"')
+      expect(logged(logs, 'a2a.v1.execute')).toBe(true)
+    })
+  })
 })
