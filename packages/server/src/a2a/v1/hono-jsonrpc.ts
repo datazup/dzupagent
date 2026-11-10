@@ -15,6 +15,13 @@ const PUSH_METHODS = new Set([
   "ListTaskPushNotificationConfigs", "DeleteTaskPushNotificationConfig",
 ]);
 
+/** Fixed client-visible text per JSON-RPC code; SDK messages can echo caller or host text. */
+const FIXED_ERROR_MESSAGES = new Map<number, string>([
+  [-32700, "Parse error"], [-32600, "Invalid request"], [-32601, "Unknown method"], [-32602, "Invalid method parameters"],
+  [-32001, "Task not found"], [-32002, "Task cannot be canceled"], [-32003, "Push notifications are not supported"],
+  [-32004, "Operation is not supported"], [-32005, "Content type is not supported"], [-32009, "Version not supported"],
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -120,9 +127,13 @@ export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): 
       await response.return(undefined);
       return fail(-32004, "Streaming is not supported");
     }
-    if (isRecord(response.error) && response.error.code === -32603) {
-      const { safe } = logRouteError(c, "a2a.v1.jsonrpc", new Error(String(response.error.message)));
-      return fail(-32603, safe);
+    if (isRecord(response.error)) {
+      const fixed = typeof response.error.code === "number" ? FIXED_ERROR_MESSAGES.get(response.error.code) : undefined;
+      if (fixed === undefined || response.error.code === -32603) {
+        const { safe } = logRouteError(c, "a2a.v1.jsonrpc", new Error(String(response.error.message)));
+        return fail(-32603, safe);
+      }
+      return fail(response.error.code as number, fixed);
     }
     if (context.activatedExtensions?.length) {
       c.header(HTTP_EXTENSION_HEADER, Extensions.toServiceParameter(context.activatedExtensions));

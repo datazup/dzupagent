@@ -575,5 +575,56 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
       expect(text).not.toContain(secret)
       expect(text).toContain('Internal server error')
     })
+
+    it('an executor error object with a throwing message getter yields the generic message', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const hostile = new Error('placeholder')
+      Object.defineProperty(hostile, 'message', { get: () => { throw new Error('fixture-hostile-message-detail') } })
+      const gated = gatedExecutor(() => { throw hostile })
+      const call = harness({ executor: gated.executor })
+      const task = await startImmediate(call)
+      gated.release()
+      await settle()
+      let text = ''
+      await vi.waitFor(async () => {
+        text = await (await call('GetTask', { id: task.id })).text()
+        expect(text).toContain('TASK_STATE_FAILED')
+      }, { timeout: 2000, interval: 10 })
+      expect(text).not.toContain('fixture-hostile-message-detail')
+      expect(text).toContain('Internal server error')
+    })
+
+    it('a malformed or hostile event from the executor never reaches the SDK and yields the generic message', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const hostileKind = { data: {} } as Record<string, unknown>
+      Object.defineProperty(hostileKind, 'kind', { enumerable: true, get: () => { throw new Error('fixture-kind-secret-detail') } })
+      for (const bad of [{ kind: 'statusUpdate' }, { kind: 'unknown-kind', data: {} }, { kind: 'task', data: null }, hostileKind]) {
+        const gated = gatedExecutor((bus) => { bus.publish(bad as never) })
+        const call = harness({ executor: gated.executor })
+        const task = await startImmediate(call)
+        gated.release()
+        await settle()
+        let text = ''
+        await vi.waitFor(async () => {
+          text = await (await call('GetTask', { id: task.id })).text()
+          expect(text).toContain('TASK_STATE_FAILED')
+        }, { timeout: 2000, interval: 10 })
+        expect(text).not.toContain('fixture-kind-secret-detail')
+        expect(text).toContain('Internal server error')
+      }
+    })
+
+    it('JSON-RPC error envelopes carry fixed text and never echo caller or host text', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const echoed = 'caller-supplied-id-fixture'
+      const gated = gatedExecutor(() => {})
+      const call = harness({ executor: gated.executor })
+      const body = await (await call('GetTask', { id: echoed })).json() as { error?: { code: number; message: string; data?: unknown } }
+      expect(body.error?.code).toBe(-32001)
+      expect(JSON.stringify(body)).not.toContain(echoed)
+      expect(body.error?.data).toBeUndefined()
+    })
   })
 })

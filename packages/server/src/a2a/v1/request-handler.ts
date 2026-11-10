@@ -41,14 +41,21 @@ class DzupRequestHandler extends DefaultRequestHandler {
   }
 }
 
+const GENERIC_ERROR = "Internal server error";
+
+/** Total: a hostile error object (throwing getters, toJSON) must never escape or leak. */
 function logAndSanitize(context: ServerCallContext | undefined, label: string, error: unknown): Error {
-  const route = context?.state.get("dzup.a2a.route") as Context | undefined;
-  const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
-  const { safe } = logRouteError(requestInfo, label, error);
-  return new Error(safe);
+  try {
+    const route = context?.state.get("dzup.a2a.route") as Context | undefined;
+    const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
+    return new Error(logRouteError(requestInfo, label, error).safe);
+  } catch {
+    return new Error(GENERIC_ERROR);
+  }
 }
 
-const SDK_FAILURE_PREFIX = "Event processing loop failed:";
+const EVENT_KINDS = new Set(["task", "message", "statusUpdate", "artifactUpdate"]);
+const SDK_FAILURE_PREFIXES = ["Event processing loop failed:", "Agent execution error:"];
 
 /**
  * Single choke point: the SDK persists "Event processing loop failed: <message>"
@@ -61,9 +68,11 @@ function redactSdkFailureText(task: Task, context: ServerCallContext): void {
   for (const message of messages) {
     for (const part of message?.parts ?? []) {
       const content = part.content;
-      if (content?.$case === "text" && content.value.startsWith(SDK_FAILURE_PREFIX)) {
+      if (content?.$case !== "text") continue;
+      const prefix = SDK_FAILURE_PREFIXES.find((p) => content.value.startsWith(p));
+      if (prefix !== undefined) {
         const error = logAndSanitize(context, "a2a.v1.persisted-failure", new Error(content.value));
-        content.value = `${SDK_FAILURE_PREFIX} ${error.message}`;
+        content.value = `${prefix} ${error.message}`;
       }
     }
   }
@@ -78,11 +87,15 @@ function redactSdkFailureText(task: Task, context: ServerCallContext): void {
 function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string): ExecutionEventBus {
   const wrapped: ExecutionEventBus = {
     publish(event) {
-      let detached = event;
+      let detached: typeof event;
       try {
-        if (typeof event === "object" && event !== null && "data" in event) {
-          detached = { ...event, data: structuredClone((event as { data: unknown }).data) } as typeof event;
+        // Read each field once and publish a fresh object: no getter, accessor or
+        // unknown kind from the host ever reaches the SDK's listeners or switch.
+        const { kind, data } = event as { kind: unknown; data: unknown };
+        if (!EVENT_KINDS.has(kind as string) || typeof data !== "object" || data === null) {
+          throw new Error("invalid A2A v1 executor event");
         }
+        detached = { kind, data: structuredClone(data) } as typeof event;
       } catch (error) {
         throw logAndSanitize(context, label, error);
       }
@@ -107,7 +120,9 @@ function sanitizeTaskStore(store: TaskStore): TaskStore {
   return {
     async load(taskId, context) {
       try {
-        return await store.load(taskId, context);
+        const loaded = await store.load(taskId, context);
+        if (loaded) redactSdkFailureText(loaded, context);
+        return loaded;
       } catch (error) {
         throw logAndSanitize(context, "a2a.v1.task-store", error);
       }
