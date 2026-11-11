@@ -1874,7 +1874,7 @@ __metadata:
     cron-parser: "npm:^4.9.0"
     drizzle-kit: "npm:^0.31.9"
     drizzle-orm: "npm:^0.45.2"
-    hono: "npm:^4.12.16"
+    hono: "npm:^4.13.18"
     testcontainers: "npm:^10.0.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
@@ -2896,12 +2896,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hono/node-server@npm:^1.19.13":
-  version: 1.19.17
-  resolution: "@hono/node-server@npm:1.19.17"
+"@hono/node-server@npm:^1.19.19":
+  version: 1.19.19
+  resolution: "@hono/node-server@npm:1.19.19"
   peerDependencies:
     hono: ^4
-  checksum: 10c0/e77907e3b5db8ab68ed4f297ad84807bfdd698636408de86ab8d36dab4658504ac4c0ed9d9436bc272a0172b9b7a5a4b578532e0b5baf97674c7b420cb5cff4b
+  checksum: 10c0/a021ebe7b9bb228dee84d71dd3caa0973787d3f8d11fe3b3bbb293f2e8af18c32150abac50dbe5cca1f413034e854517163b934f769487b32222809b58560112
   languageName: node
   linkType: hard
 
@@ -8478,10 +8478,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"hono@npm:^4.12.16":
-  version: 4.12.27
-  resolution: "hono@npm:4.12.27"
-  checksum: 10c0/1c62a52ccafde751656d065bbdacffbd421d3cfaedfbffefe80ecdb8ccf96c2209af732a74064cd33ac6d187a91ec32b1dc7ddde2416a53052fe7c0a94352a89
+"hono@npm:^4.13.18":
+  version: 4.13.18
+  resolution: "hono@npm:4.13.18"
+  checksum: 10c0/c04462570fe9dcdf820b633e6c22d33d414d7608abbed7daadd3ad7c594b2670b4790a16b613658e952367a12082a21f0b556d021c17ccbbc70758eefd80badc
   languageName: node
   linkType: hard
 
