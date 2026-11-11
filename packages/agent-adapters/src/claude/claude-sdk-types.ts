@@ -65,6 +65,8 @@ export interface ResultMessage extends ClaudeSDKMessage {
   subtype: string
   is_error?: boolean
   result?: string
+  /** Parsed value when the query set `outputFormat: { type: 'json_schema' }`. */
+  structured_output?: unknown
   session_id?: string
   usage?: Record<string, unknown>
   total_cost_usd?: number

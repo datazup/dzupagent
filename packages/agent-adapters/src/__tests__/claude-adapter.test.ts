@@ -1984,40 +1984,79 @@ describe('ClaudeAgentAdapter', () => {
   })
 
   // -----------------------------------------------------------------------
-  // outputSchema (R-09): explicit refusal, never a silent ignore
+  // outputSchema: forwarded as SDK outputFormat json_schema; the parsed
+  // structured_output becomes the completed result
+  // (DZA-CLAUDE-SDK-OUTPUT-SCHEMA-20261111-R1, replaces the R-09 refusal)
   // -----------------------------------------------------------------------
 
   describe('outputSchema', () => {
-    const input: AgentInput = {
-      prompt: 'Return JSON',
-      outputSchema: { type: 'object', properties: { answer: { type: 'number' } } },
-    }
-    const refusal = {
-      code: 'CAPABILITY_DENIED',
-      recoverable: false,
-      context: { providerId: 'claude', reason: 'unsupported_output_schema' },
-    }
+    const schema = { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] }
+    const input: AgentInput = { prompt: 'Return JSON', outputSchema: schema }
 
-    it('refuses outputSchema with unsupported_output_schema before opening a query', async () => {
-      const failure = await collectEvents(adapter.execute(input)).then(() => undefined, (error: unknown) => error)
+    it('forwards outputSchema as outputFormat json_schema and returns structured_output as the result', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-schema'),
+        { ...makeResultSuccess({ sessionId: 'sess-schema', result: 'prose that is not the payload' }), structured_output: { answer: 42 } },
+      ]))
 
-      expect(failure).toBeInstanceOf(ForgeError)
-      expect(failure).toMatchObject(refusal)
-      expect(mockQuery).not.toHaveBeenCalled()
+      const events = await collectEvents(adapter.execute(input))
+
+      expect(mockQuery).toHaveBeenCalledTimes(1)
+      expect(mockQuery.mock.calls[0]![0].options.outputFormat).toEqual({ type: 'json_schema', schema })
+      const completed = events.find((event) => event.type === 'adapter:completed')
+      expect(completed).toBeDefined()
+      expect(JSON.parse((completed as { result: string }).result)).toEqual({ answer: 42 })
     })
 
-    it('refuses outputSchema on resume and at execution-control admission', async () => {
-      const resumed = await collectEvents(adapter.resumeSession('sess-1', input))
-        .then(() => undefined, (error: unknown) => error)
-      expect(resumed).toMatchObject(refusal)
-      let admissionFailure: unknown
-      try {
-        adapter.admitExecutionControls(zeroToolInput({ outputSchema: input.outputSchema }), ZERO_TOOL_REQUIREMENT)
-      } catch (error) {
-        admissionFailure = error
-      }
-      expect(admissionFailure).toMatchObject(refusal)
-      expect(mockQuery).not.toHaveBeenCalled()
+    it('keeps the text result when the SDK returns no structured_output', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-schema-text'),
+        makeResultSuccess({ sessionId: 'sess-schema-text', result: '{"answer":7}' }),
+      ]))
+
+      const events = await collectEvents(adapter.execute(input))
+
+      const completed = events.find((event) => event.type === 'adapter:completed') as { result: string } | undefined
+      expect(completed?.result).toBe('{"answer":7}')
+    })
+
+    it('keeps the text result when structured_output is null', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-schema-null'),
+        { ...makeResultSuccess({ sessionId: 'sess-schema-null', result: '{"answer":3}' }), structured_output: null },
+      ]))
+
+      const events = await collectEvents(adapter.execute(input))
+
+      const completed = events.find((event) => event.type === 'adapter:completed') as { result: string } | undefined
+      expect(completed?.result).toBe('{"answer":3}')
+    })
+
+    it('sends no outputFormat when no outputSchema is given', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-plain'),
+        makeResultSuccess({ sessionId: 'sess-plain' }),
+      ]))
+
+      await collectEvents(adapter.execute({ prompt: 'plain' }))
+
+      expect(mockQuery.mock.calls[0]![0].options).not.toHaveProperty('outputFormat')
+    })
+
+    it('forwards outputSchema on resume and admits it at execution-control admission', async () => {
+      mockQuery.mockReturnValue(asyncIterableOf([
+        makeSystemMessage('sess-1'),
+        { ...makeResultSuccess({ sessionId: 'sess-1' }), structured_output: { answer: 1 } },
+      ]))
+
+      await collectEvents(adapter.resumeSession('sess-1', input))
+
+      expect(mockQuery.mock.calls[0]![0].options).toMatchObject({
+        resume: 'sess-1',
+        outputFormat: { type: 'json_schema', schema },
+      })
+      expect(() => adapter.admitExecutionControls(zeroToolInput({ outputSchema: schema }), ZERO_TOOL_REQUIREMENT))
+        .not.toThrow()
     })
   })
 })
