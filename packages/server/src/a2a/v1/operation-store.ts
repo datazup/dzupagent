@@ -4,7 +4,7 @@ import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
 import { a2aV1Operations } from '../../persistence/drizzle-schema.js'
 import type { DrizzleStoreDatabase } from '../../persistence/drizzle-store-types.js'
 import { dzupOwnerResolver } from './identity.js'
-import { OperationRefusedError, RECOVERY_DEFAULTS, TERMINAL_TASK_STATES, operationKeyFor, type A2AExecutionPort, type OperationView } from './recovery-port.js'
+import { OperationRefusedError, RECOVERY_DEFAULTS, TASK_LOCK_SEED, TERMINAL_TASK_STATES, operationKeyFor, taskLockKey, type A2AExecutionPort, type OperationView } from './recovery-port.js'
 
 /**
  * A2A-M3-RECOVERY-20261111-R1 (admission 972a4583): the operation ledger and the claim predicates.
@@ -15,8 +15,6 @@ import { OperationRefusedError, RECOVERY_DEFAULTS, TERMINAL_TASK_STATES, operati
 const GENERIC = 'Internal server error'
 
 export { OperationRefusedError }
-/** Fixed advisory-lock namespace (the bigint seed of hashtextextended) for every recovery writer of one task. */
-const LOCK_SEED = 4121955
 
 export interface RecoveryLog {
   level: 'error' | 'warn'
@@ -192,10 +190,10 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
   }
 
   async atomic<T>(scope: { tenantId: string; ownerKey: string; taskId: string }, fn: (tx: DrizzleStoreDatabase) => Promise<T>): Promise<T> {
-    const key = `a2a:v1:recovery:${JSON.stringify([scope.tenantId, scope.ownerKey, scope.taskId])}`
+    const key = taskLockKey(scope)
     return (this.db as TransactionalDatabase).transaction(async (tx) => {
       // A select without a FROM clause is only a builder and never runs: give it a source so the lock is actually taken.
-      await tx.select({ locked: sql`pg_advisory_xact_lock(hashtextextended(${key}, ${LOCK_SEED}))` }).from(sql`(select 1) as "lk"`)
+      await tx.select({ locked: sql`pg_advisory_xact_lock(hashtextextended(${key}, ${TASK_LOCK_SEED}))` }).from(sql`(select 1) as "lk"`)
       return fn(tx)
     })
   }

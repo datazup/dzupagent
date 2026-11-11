@@ -105,8 +105,8 @@ class DzupRequestHandler extends DefaultRequestHandler {
       let operation;
       try {
         operation = await recovery.latest(context, task.id);
-      } catch (error) {
-        throw logAndSanitize(context, "a2a.v1.recovery", error);
+      } catch {
+        throw logFixedAndSanitize(context, "a2a.v1.recovery.cancel");
       }
       if (recovery.port !== undefined && typeof recovery.claimCancel === "function") {
         // M3b: with a port the handler-owned cancel flow supersedes the guard, but only while a dispatch can still be outstanding.
@@ -136,8 +136,8 @@ class DzupRequestHandler extends DefaultRequestHandler {
         const current = await recovery.latest(context, task.id);
         if (current?.state === "resolved") return super.cancelTask(params, context);
       }
-    } catch (error) {
-      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    } catch {
+      throw logFixedAndSanitize(context, "a2a.v1.recovery.cancel");
     }
     if (!claimed) throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
     try {
@@ -154,8 +154,8 @@ class DzupRequestHandler extends DefaultRequestHandler {
         await requestStopSafely(recovery, recovery.port, claimed, recovery.inspectTimeoutMs);
       }
       await resolveClaimedOperation(recovery, claimed, token, recovery.port, recovery.inspectTimeoutMs);
-    } catch (error) {
-      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    } catch {
+      throw logFixedAndSanitize(context, "a2a.v1.recovery.cancel");
     }
     // The stored task is the truth (never the SDK's object): CANCELED only on a receipted stop; a task that finished first is -32002.
     const stored = await this.getTask({ id: task.id, tenant: "" }, context);
@@ -181,6 +181,23 @@ function isTaskNotFound(error: unknown): boolean {
 }
 
 const GENERIC_ERROR = "Internal server error";
+
+/**
+ * M3b: the cancel path logs only a fixed, payload-free record (the label), never the original error: no message, stack, id or scope reaches
+ * the logger. Total like logAndSanitize.
+ */
+function logFixedAndSanitize(context: ServerCallContext | undefined, label: string): Error {
+  try {
+    const route = context?.state.get("dzup.a2a.route") as Context | undefined;
+    const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
+    const fixed = new Error(`${label} failed`);
+    fixed.stack = `${fixed.name}: ${fixed.message}`;
+    logRouteError(requestInfo, label, fixed);
+    return new Error(GENERIC_ERROR);
+  } catch {
+    return new Error(GENERIC_ERROR);
+  }
+}
 
 /** Total: a hostile error object (throwing getters, toJSON) must never escape or leak. */
 function logAndSanitize(context: ServerCallContext | undefined, label: string, error: unknown): Error {
@@ -267,7 +284,8 @@ function copyRequestContext(request: RequestContext, operationKey?: string): Req
  * failure is logged and replaced by the generic message, not later inside the
  * SDK's background loop.
  */
-function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string): ExecutionEventBus {
+function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string, fixedLogs = false): ExecutionEventBus {
+  const failure = (error: unknown): Error => (fixedLogs ? logFixedAndSanitize(context, label) : logAndSanitize(context, label, error));
   // Host listeners get a detached copy of each event and cannot throw into the SDK's dispatch.
   const guarded = new WeakMap<object, (...args: unknown[]) => void>();
   const guard = (listener: unknown): never => {
@@ -278,7 +296,7 @@ function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | u
         try {
           fn(...args.map((arg) => (typeof arg === "object" && arg !== null ? structuredClone(arg) : arg)));
         } catch (error) {
-          logAndSanitize(context, label, error);
+          failure(error);
         }
       };
       guarded.set(fn, safe);
@@ -301,7 +319,7 @@ function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | u
         if (kind === "task" && context) redactSdkFailureText(cloned as Task, context);
         detached = { kind, data: cloned } as typeof event;
       } catch (error) {
-        throw logAndSanitize(context, label, error);
+        throw failure(error);
       }
       bus.publish(detached);
     },
@@ -394,9 +412,9 @@ export function createA2AV1Handler({
     },
     async cancelTask(taskId, bus) {
       try {
-        await executor.cancelTask(taskId, sanitizeEventBus(bus, undefined, "a2a.v1.cancel"));
-      } catch (error) {
-        throw logAndSanitize(undefined, "a2a.v1.cancel", error);
+        await executor.cancelTask(taskId, sanitizeEventBus(bus, undefined, "a2a.v1.cancel", true));
+      } catch {
+        throw logFixedAndSanitize(undefined, "a2a.v1.cancel");
       }
     },
   };

@@ -161,7 +161,7 @@ export async function resolveClaimedOperation(
   const parts: TextPart[] = terminal && answer.terminal!.parts ? answer.terminal!.parts
     : [{ text: terminal ? 'Task finished' : stopped ? CANCELED_TEXT : NOT_STARTED_TEXT }]
   // A cancel always stores its receipt and ends with no recovery state; the dispatch kind keeps its M3a record.
-  const receipt = cancel ? receiptRecord(answer.receiptRef, terminal ? answer.terminal!.state : answer.status, terminal ? partBytes(parts) : 0) : undefined
+  const receipt = cancel ? receiptRecord(answer.receiptRef, terminal ? answer.terminal!.state : answer.status, 0) : undefined
   // The task write and the operation write are one transaction under the per-task lock.
   return recovery.atomic(row, async (tx): Promise<RecoveryOutcome> => {
     const written = await writeTerminalIn(tx, row, token, state, parts)

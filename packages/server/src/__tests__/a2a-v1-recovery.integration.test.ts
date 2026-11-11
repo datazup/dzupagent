@@ -836,7 +836,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   })
 
   /** HTTP runtime with the official SDK client; `bootRecovery` is the process boot of this runtime. */
-  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean } = {}) {
+  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean } = {}) {
     const executed: string[] = []
     const canceled: string[] = []
     const completedPublished: string[] = []
@@ -854,6 +854,10 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       async cancelTask(taskId, bus) {
         canceled.push(taskId)
         if (extra.cancelRejects) throw new Error(extra.cancelRejectsMessage ?? 'fixture-executor-cancel-rejects')
+        if (extra.cancelPublishesUnclonable) {
+          bus.publish({ kind: 'statusUpdate', data: { taskId, probe: function c8ProbeSecretFn() { return 1 } } } as never)
+          return
+        }
         if (extra.cancelCompletes) {
           bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId, contextId: 'context-fixture', status: { state: 'TASK_STATE_COMPLETED', timestamp: '2026-10-10T12:00:00Z' } })))
           gates.get(taskId)?.()
@@ -1627,7 +1631,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       const runtime = await startHttp(recovery, holdStoreR2(), opts.http ?? {})
       return { id, key, p, recovery, runtime, client: await runtime.clientFor() }
     }
-    const liveR2 = async (answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; http?: { cancelRejects?: boolean; cancelRejectsMessage?: string } } = {}) => {
+    const liveR2 = async (answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; http?: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelPublishesUnclonable?: boolean } } = {}) => {
       const p = cancelPortR2(answer, opts.extra)
       const recovery = boot({ port: p, ...(opts.recovery ?? {}) })
       const runtime = await startHttp(recovery, holdStoreR2(), opts.http ?? {})
@@ -1698,6 +1702,14 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         expect(JSON.stringify(result)).not.toContain(probe)
         expect(JSON.stringify(await stored(o.id))).not.toContain(probe)
         expect(o.p.inspect).toHaveBeenCalledTimes(1)
+      })
+
+      it('an event the executor publishes from cancelTask that cannot be cloned (its error text carries source text) never reaches console.error; the flow still inspects and cancels', async () => {
+        const o = await liveR2(stoppedAnswer, { http: { cancelPublishesUnclonable: true } })
+        const result = await cancelCall(o.client, o.id)
+        expect(result.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+        expect(consoleText()).not.toContain('c8ProbeSecretFn')
+        expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0)
       })
 
       it.each([

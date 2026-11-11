@@ -15,6 +15,10 @@ export const CANCEL_REFUSED_TEXT = 'Task cannot be canceled while recovery is pe
 export const NOT_STARTED_TEXT = 'Task was not started; resubmit'
 /** Defaults shared by the handler's cancel flow and the scanner. */
 export const RECOVERY_DEFAULTS = { minAgeMs: 60_000, claimTtlMs: 300_000, inspectTimeoutMs: 10_000 } as const
+/** Fixed advisory-lock namespace (the bigint seed of hashtextextended) and key for every writer of one task's recovery state. */
+export const TASK_LOCK_SEED = 4121955
+export const taskLockKey = (scope: { tenantId: string; ownerKey: string; taskId: string }): string =>
+  `a2a:v1:recovery:${JSON.stringify([scope.tenantId, scope.ownerKey, scope.taskId])}`
 export const CANCELED_TEXT = 'Task was canceled'
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u
