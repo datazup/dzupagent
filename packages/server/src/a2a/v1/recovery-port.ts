@@ -5,6 +5,11 @@ import { createHash } from 'node:crypto'
  * The port can only inspect a dispatch effect; DzupAgent recovery has no way to start work.
  */
 
+/** `begin` refused: the message already has an operation under recovery. The executor must not be invoked. */
+export class OperationRefusedError extends Error {
+  constructor() { super('A2A v1 operation refused') }
+}
+
 export const RECOVERY_REQUIRED_TEXT = 'Recovery required; the operator is informed'
 export const CANCEL_REFUSED_TEXT = 'Task cannot be canceled while recovery is pending'
 export const NOT_STARTED_TEXT = 'Task was not started; resubmit'

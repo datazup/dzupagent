@@ -4,7 +4,7 @@ import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
 import { a2aV1Operations } from '../../persistence/drizzle-schema.js'
 import type { DrizzleStoreDatabase } from '../../persistence/drizzle-store-types.js'
 import { dzupOwnerResolver } from './identity.js'
-import { TERMINAL_TASK_STATES, operationKeyFor, type OperationView } from './recovery-port.js'
+import { OperationRefusedError, TERMINAL_TASK_STATES, operationKeyFor, type OperationView } from './recovery-port.js'
 
 /**
  * A2A-M3-RECOVERY-20261111-R1 (admission 972a4583): the operation ledger and the claim predicates.
@@ -13,12 +13,8 @@ import { TERMINAL_TASK_STATES, operationKeyFor, type OperationView } from './rec
  */
 
 const GENERIC = 'Internal server error'
-const REFUSED = 'A2A v1 operation refused'
 
-/** `begin` refused: the message already has an operation under recovery. The executor must not be invoked. */
-export class OperationRefusedError extends Error {
-  constructor() { super(REFUSED) }
-}
+export { OperationRefusedError }
 const BEGIN_ATTEMPTS = 3
 
 export interface RecoveryLog {
@@ -49,24 +45,25 @@ export interface OperationRow extends OperationView {
 
 const op = (column: string): SQL => sql.raw(`"a2a_v1_operations"."${column}"`)
 const interval = (ms: number): SQL => sql`(${ms}::double precision / 1000.0) * interval '1 second'`
-const terminalList = sql.join(TERMINAL_TASK_STATES.map((state) => sql`${state}`), sql`, `)
+// Built lazily: modules that mock drizzle-orm must not fail at import time.
+const terminalList = (): SQL => sql.join(TERMINAL_TASK_STATES.map((state) => sql`${state}`), sql`, `)
 
-const LATEST = sql`${op('generation')} = (select max("o2"."generation") from "a2a_v1_operations" "o2"
+const latest = (): SQL => sql`${op('generation')} = (select max("o2"."generation") from "a2a_v1_operations" "o2"
   where "o2"."tenant_id" = ${op('tenant_id')} and "o2"."owner_key" = ${op('owner_key')} and "o2"."task_id" = ${op('task_id')})`
-const TASK_STATE = sql`(select "tk"."state" from "a2a_v1_tasks" "tk" where "tk"."tenant_id" = ${op('tenant_id')}
+const taskState = (): SQL => sql`(select "tk"."state" from "a2a_v1_tasks" "tk" where "tk"."tenant_id" = ${op('tenant_id')}
   and "tk"."owner_key" = ${op('owner_key')} and "tk"."id" = ${op('task_id')})`
 
 function pOrphanDispatch(boot: string, t: ScanTimings): SQL {
-  return sql`(${LATEST} and ${op('state')} = 'started'
+  return sql`(${latest()} and ${op('state')} = 'started'
     and (${op('boot_id')} <> ${boot} or (${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'scan'
          and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)}))
     and ${op('created_at')} < now() - ${interval(t.minAgeMs)}
-    and (${TASK_STATE} is null or ${TASK_STATE} in ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')))`
+    and (${taskState()} is null or ${taskState()} in ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')))`
 }
 
 function pFinish(t: ScanTimings): SQL {
-  return sql`(${LATEST} and ${op('state')} = 'started' and ${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'scan'
-    and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)} and ${TASK_STATE} in (${terminalList}))`
+  return sql`(${latest()} and ${op('state')} = 'started' and ${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'scan'
+    and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)} and ${taskState()} in (${terminalList()}))`
 }
 
 function pClaimScan(t: ScanTimings): SQL {
@@ -75,7 +72,7 @@ function pClaimScan(t: ScanTimings): SQL {
 }
 
 function pClaimLate(key: string, t: ScanTimings): SQL {
-  return sql`(${LATEST} and ${op('operation_key')} = ${key}
+  return sql`(${latest()} and ${op('operation_key')} = ${key}
     and (${op('recovery_state')} in ('attached', 'recovery_required')
       or (${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'late' and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)})))`
 }
@@ -138,7 +135,8 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
   /**
    * Called from `safeExecutor.execute` before every executor invocation. A new messageId gets generation = previous + 1;
    * a repeated messageId is one atomic UPDATE that re-stamps this boot and returns the same key. Zero rows from that UPDATE
-   * with an existing row means the row has a recovery state: the call is refused and the executor is not invoked.
+   * with an existing row means the row has a recovery state, or is an older generation than the task's latest: the call is
+   * refused and the executor is not invoked.
    */
   async begin(context: ServerCallContext, taskId: string, messageId: string): Promise<{ operationKey: string; generation: number }> {
     const scope = this.scope(context)
@@ -148,7 +146,7 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
     )
     for (let attempt = 0; attempt < BEGIN_ATTEMPTS; attempt += 1) {
       const repeated = await this.db.update(a2aV1Operations).set({ bootId: this.bootId })
-        .where(and(where, isNull(a2aV1Operations.recoveryState))).returning()
+        .where(and(where, isNull(a2aV1Operations.recoveryState), latest())).returning()
       const kept = toRow(repeated[0])
       if (kept) return { operationKey: kept.operationKey, generation: kept.generation }
       const existing = await this.db.select().from(a2aV1Operations).where(where).limit(1)
@@ -254,7 +252,7 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
     const rows = await this.db.update(a2aV1Operations).set({ recoveryReceipt: receipt }).where(and(
       eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
       eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation),
-      sql`(${LATEST} and ${op('operation_key')} = ${row.operationKey} and ${op('recovery_receipt')} is null
+      sql`(${latest()} and ${op('operation_key')} = ${row.operationKey} and ${op('recovery_receipt')} is null
         and (${op('recovery_state')} = 'not_applied' or ${op('state')} = 'resolved'))`,
     )).returning({ taskId: a2aV1Operations.taskId })
     return rows.length > 0

@@ -564,6 +564,23 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(await op('window-1')).toEqual(before)
     })
 
+    it('the republish path settles a blocking SendMessage without a hang and without a state change', async () => {
+      class LatePrecheck extends A2AV1Recovery {
+        override async retryUnderRecovery() { return false }
+      }
+      const key = await seed(boot(), 'window-2', 'TASK_STATE_WORKING', 'same-message')
+      await scan(boot(), port({ [key]: running }))
+      const before = await op('window-2')
+      const execute = vi.fn(async () => {})
+      const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: new LatePrecheck(dbOf(primary), { logger: () => {} }) })
+      const params = SendMessageRequest.toJSON(SendMessageRequest.fromJSON({ message: { messageId: 'same-message', taskId: 'window-2', contextId: 'context-fixture', role: 'ROLE_USER', parts: [{ text: 'again', mediaType: 'text/plain' }] } }))
+      const blocking = await v1.handler.handle({ jsonrpc: '2.0', id: 'b', method: 'SendMessage', params }, alice)
+      expect(Symbol.asyncIterator in blocking).toBe(false)
+      expect(execute).not.toHaveBeenCalled()
+      expect(await stateOf('window-2')).toBe('TASK_STATE_WORKING')
+      expect(await op('window-2')).toEqual(before)
+    })
+
     it('a concurrent retry and scan race never double-resolves: either the retry or the claim wins', async () => {
       for (let i = 0; i < 8; i += 1) {
         const id = `race-r-${i}`
@@ -600,9 +617,19 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       const [a, b, c] = await Promise.all([recovery.begin(alice, 'conc-1', 'm1'), recovery.begin(alice, 'conc-1', 'm2'), recovery.begin(alice, 'conc-1', 'm3')])
       expect([a.generation, b.generation, c.generation].sort()).toEqual([1, 2, 3])
       expect(new Set([a.operationKey, b.operationKey, c.operationKey]).size).toBe(3)
-      const again = await recovery.begin(alice, 'conc-1', 'm2')
-      expect(again).toEqual(b)
+      const newest = [a, b, c].sort((left, right) => right.generation - left.generation)[0]!
+      const newestMessage = newest === a ? 'm1' : newest === b ? 'm2' : 'm3'
+      expect(await recovery.begin(alice, 'conc-1', newestMessage)).toEqual(newest) // a repeat of the latest generation reuses its key
       expect((await ops()).filter((row) => row.taskId === 'conc-1')).toHaveLength(3)
+    })
+
+    it('a repeated messageId of an older generation (a newer one exists) is refused and never re-stamps the old row', async () => {
+      const recovery = boot()
+      await recovery.begin(alice, 'old-gen', 'm1')
+      await recovery.begin(alice, 'old-gen', 'm2')
+      const before = await op('old-gen', 1)
+      await expect(boot().begin(alice, 'old-gen', 'm1')).rejects.toThrow()
+      expect(await op('old-gen', 1)).toEqual(before)
     })
 
     it('the key is stable across restart and isolated per owner', async () => {

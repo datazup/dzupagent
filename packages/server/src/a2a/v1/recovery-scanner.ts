@@ -108,7 +108,8 @@ export async function recoverOrphanedA2AV1Tasks(
   recovery: A2AV1RecoveryStore, port: A2AExecutionPort | undefined, options: RecoverOptions = {},
 ): Promise<RecoveryResult[]> {
   const timings = timingsOf(options)
-  const inspectTimeoutMs = options.inspectTimeoutMs ?? DEFAULTS.inspectTimeoutMs
+  // An inspect must finish well inside the claim it runs under.
+  const inspectTimeoutMs = Math.min(options.inspectTimeoutMs ?? DEFAULTS.inspectTimeoutMs, Math.max(1, Math.floor(timings.claimTtlMs / 2)))
   const results: RecoveryResult[] = []
   const seen = new Set<string>()
   let limit = options.batch ?? DEFAULTS.batch
