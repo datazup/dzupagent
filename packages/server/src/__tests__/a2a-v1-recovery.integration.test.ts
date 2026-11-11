@@ -1916,5 +1916,118 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         expect(requestStop).toHaveBeenCalledTimes(1)
       })
     })
+
+    describe('M3b round 3: cancel-scoped logging reaches the logger only as fixed payload-free records (every sink reachable from cancelTask)', () => {
+      const probe = 'r3-probe-secret-detail'
+      const consoleText = () => JSON.stringify(vi.mocked(console.error).mock.calls)
+      /** A store wrapper that throws a probe error on the k-th load or save, and counts every call. */
+      const failingStore = (inner: ReturnType<typeof tasks>, initial: { load?: number; save?: number } = {}) => {
+        const plan = { ...initial }
+        const calls = { loads: 0, saves: 0, injected: false }
+        const store: TaskStore & { cancelHoldBack: true } = {
+          cancelHoldBack: true, // the wrapped store is a hold-back store (the handler's construction check reads the marker)
+          load: async (id: string, context: ServerCallContext) => { calls.loads += 1; if (plan.load === calls.loads) { calls.injected = true; throw new Error(probe) } return inner.load(id, context) },
+          save: async (task: Task, context: ServerCallContext) => { calls.saves += 1; if (plan.save === calls.saves) { calls.injected = true; throw new Error(probe) } await inner.save(task, context) },
+          list: (params: Parameters<typeof inner.list>[0], context: ServerCallContext) => inner.list(params, context),
+        }
+        return { store, calls, reset: () => { calls.loads = 0; calls.saves = 0 }, arm: (next: { load?: number; save?: number }) => { Object.assign(plan, next) } }
+      }
+      const withText = (id: string, text: string) => Task.fromJSON({
+        id, contextId: 'context-fixture',
+        status: { state: 'TASK_STATE_WORKING', timestamp: '2026-10-10T10:11:12.345Z', message: { messageId: `status-${id}`, role: 'ROLE_AGENT', parts: [{ text, mediaType: 'text/plain' }] } },
+        history: [{ messageId: `user-${id}`, role: 'ROLE_USER', taskId: id, contextId: 'context-fixture', parts: [{ text: 'first input', mediaType: 'text/plain' }] }],
+      })
+      type Variant = 'orphan' | 'live'
+      /** One cancel with a failing store; the counters cover only the cancel call. */
+      const cancelWithStore = async (variant: Variant, plan: { load?: number; save?: number }) => {
+        await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+        const wrapped = failingStore(holdStoreR2())
+        const p = cancelPortR2(stoppedAnswer)
+        let id: string
+        let client: Awaited<ReturnType<Awaited<ReturnType<typeof startHttp>>['clientFor']>>
+        if (variant === 'orphan') {
+          id = (await orphanFromRestart()).id
+          client = await (await startHttp(boot({ port: p }), wrapped.store)).clientFor()
+        } else {
+          const runtime = await startHttp(boot({ port: p }), wrapped.store)
+          client = await runtime.clientFor()
+          const sent = await client.sendMessage(send('working'))
+          if (!('id' in sent)) throw new Error('expected task')
+          id = sent.id
+        }
+        wrapped.reset()
+        wrapped.arm(plan) // armed only for the cancel call: the send before it is not counted
+        vi.mocked(console.error).mockClear()
+        const error = await cancelCall(client, id).then(() => undefined, (caught: unknown) => caught)
+        return { calls: wrapped.calls, error, id }
+      }
+
+      it('the first latest read succeeds and the final projection read rejects: the generic error, a fixed record, and no probe text anywhere', async () => {
+        const o = await orphanR2(stoppedAnswer)
+        const original = o.recovery.latest.bind(o.recovery)
+        let reads = 0
+        vi.spyOn(o.recovery, 'latest').mockImplementation(async (context, taskId) => { reads += 1; if (reads === 2) throw new Error(probe); return original(context, taskId) })
+        vi.mocked(console.error).mockClear()
+        const error = await cancelCall(o.client, o.id).then(() => undefined, (caught: unknown) => caught)
+        expect(reads).toBe(2)
+        expect(error).toBeDefined()
+        expect(String((error as { message?: string }).message)).not.toContain(probe)
+        expect(consoleText()).not.toContain(probe)
+        expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0)
+        expect(JSON.stringify(await stored(o.id))).not.toContain(probe)
+        expect(await stateOf(o.id)).toBe('TASK_STATE_CANCELED') // the resolution had already committed
+      })
+
+      it.each(['orphan', 'live'] as const)('a task-store load or save failing at EVERY stage of a %s cancel never puts the probe error text in the logger, a response or a persisted task', async (variant) => {
+        const baseline = await cancelWithStore(variant, {})
+        expect(baseline.error).toBeUndefined()
+        expect(baseline.calls.loads).toBeGreaterThanOrEqual(3)
+        expect(baseline.calls.saves).toBeGreaterThanOrEqual(1)
+        for (let k = 1; k <= baseline.calls.loads; k += 1) {
+          const run = await cancelWithStore(variant, { load: k })
+          expect(run.calls.injected, `load ${k}`).toBe(true)
+          expect(consoleText(), `load ${k}`).not.toContain(probe)
+          expect(String((run.error as { message?: string } | undefined)?.message), `load ${k}`).not.toContain(probe)
+          expect(JSON.stringify(await tasks().load(run.id, alice)), `load ${k}`).not.toContain(probe)
+        }
+        for (let k = 1; k <= baseline.calls.saves; k += 1) {
+          const run = await cancelWithStore(variant, { save: k })
+          expect(run.calls.injected, `save ${k}`).toBe(true)
+          expect(consoleText(), `save ${k}`).not.toContain(probe)
+          expect(String((run.error as { message?: string } | undefined)?.message), `save ${k}`).not.toContain(probe)
+        }
+      })
+
+      it('a persisted status text that carries the SDK failure prefix is never copied into the logger while a cancel loads the task', async () => {
+        const persisted = 'r3-persisted-probe-text'
+        const earlier = boot()
+        await earlier.begin(alice, 'r3-persisted', 'm-r3-persisted')
+        await tasks().save(withText('r3-persisted', `Agent execution error: ${persisted}`), alice)
+        const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), holdStoreR2())
+        vi.mocked(console.error).mockClear()
+        const result = await cancelCall(await runtime.clientFor(), 'r3-persisted')
+        expect(result.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+        expect(consoleText()).not.toContain(persisted)
+        expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0) // the fixed record is still written
+      })
+
+      it('control, outside a cancel: GetTask logs the generic way (the original error text is logged and the wire error stays generic), for a failing latest read and a failing store load', async () => {
+        const o = await orphanR2(stoppedAnswer)
+        vi.spyOn(o.recovery, 'latest').mockRejectedValue(new Error(probe))
+        vi.mocked(console.error).mockClear()
+        const first = await o.client.getTask({ id: o.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
+        expect(first).toBeDefined()
+        expect(String((first as { message?: string }).message)).not.toContain(probe)
+        expect(consoleText()).toContain(probe)
+        const wrapped = failingStore(holdStoreR2(), { load: 1 })
+        const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), wrapped.store)
+        vi.mocked(console.error).mockClear()
+        const second = await (await runtime.clientFor()).getTask({ id: o.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
+        expect(wrapped.calls.injected).toBe(true)
+        expect(second).toBeDefined()
+        expect(String((second as { message?: string }).message)).not.toContain(probe)
+        expect(consoleText()).toContain(probe)
+      })
+    })
   })
 })
