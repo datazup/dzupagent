@@ -47,6 +47,7 @@ function copyAllowlisted(observation: ProviderQuotaObservation): ProviderQuotaOb
     method: observation.method,
     observedAt: observation.observedAt,
     expiresAt: observation.expiresAt,
+    usagePermission: observation.usagePermission,
     windows: Object.freeze(observation.windows.map((window) => Object.freeze({
       windowRef: window.windowRef,
       durationMinutes: window.durationMinutes,

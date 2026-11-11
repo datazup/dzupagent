@@ -17,7 +17,13 @@
  * Compatibility: the multi-bucket `rateLimitsByLimitId` map is preferred; when
  * it is absent, null or empty, the single `rateLimits` snapshot is used.
  * Windows are identified by their reported `windowDurationMins` (300 is five
- * hours, 10080 seven days), never by their primary/secondary position alone.
+ * hours, 10080 seven days), never by their primary/secondary position alone;
+ * two windows reporting the same duration are ambiguous and keep no duration.
+ *
+ * Usage permission follows the app-server contract: `ordinaryUsageAllowed`
+ * true is allowed, false is denied, and null or absent is unknown ("clients
+ * must not infer recovery from percentages or reset times"). A bucket with a
+ * non-null `rateLimitReachedType` is denied whatever its percentages say.
  */
 import {
   PROVIDER_QUOTA_LIMITS,
@@ -26,6 +32,7 @@ import {
   type ProviderQuotaObservation,
   type ProviderQuotaReading,
   type ProviderQuotaReasonCode,
+  type ProviderQuotaUsagePermission,
   type ProviderQuotaWindow,
 } from '@dzupagent/runtime-contracts'
 
@@ -146,27 +153,35 @@ function normalizeWindow(windowRef: string, value: unknown): ProviderQuotaWindow
   }
 }
 
+function accountPermission(payload: Record<string, unknown>): ProviderQuotaUsagePermission {
+  const allowed = payload['ordinaryUsageAllowed']
+  if (allowed === true) return 'allowed'
+  if (allowed === false) return 'denied'
+  return 'unknown'
+}
+
 function normalizeSnapshot(
   key: string | null,
   value: unknown,
   context: { readonly poolRef: string | null, readonly observedAt: string, readonly expiresAt: string },
+  permission: ProviderQuotaUsagePermission,
 ): ProviderQuotaObservation | null {
   if (!isRecord(value)) return null
   const limitId = value['limitId']
   const bucketRef = isProviderQuotaRef(limitId) ? limitId : (isProviderQuotaRef(key) ? key : null)
   const model = value['normalModelSlug']
-  const windows: ProviderQuotaWindow[] = []
-  const seen = new Set<number>()
+  const found: ProviderQuotaWindow[] = []
   for (const position of ['primary', 'secondary'] as const) {
     const window = normalizeWindow(position, value[position])
-    if (window === null) continue
-    // A repeated duration is ambiguous; keep the first rather than guess.
-    if (window.durationMinutes !== null) {
-      if (seen.has(window.durationMinutes)) continue
-      seen.add(window.durationMinutes)
-    }
-    windows.push(window)
+    if (window !== null) found.push(window)
   }
+  // A duration reported twice is ambiguous: neither window may claim it.
+  const windows = found.map((window) =>
+    window.durationMinutes !== null
+      && found.filter((other) => other.durationMinutes === window.durationMinutes).length > 1
+      ? { ...window, durationMinutes: null }
+      : window)
+  const reached = value['rateLimitReachedType']
   return {
     schema: PROVIDER_QUOTA_SCHEMA,
     provider: CODEX_QUOTA_PROVIDER,
@@ -177,6 +192,7 @@ function normalizeSnapshot(
     method: 'request-response',
     observedAt: context.observedAt,
     expiresAt: context.expiresAt,
+    usagePermission: reached !== null && reached !== undefined ? 'denied' : permission,
     windows,
   }
 }
@@ -191,11 +207,12 @@ export function normalizeCodexRateLimits(
 ): ProviderQuotaObservation[] | null {
   if (!isRecord(payload)) return null
   const observations: ProviderQuotaObservation[] = []
+  const permission = accountPermission(payload)
   const byId = payload['rateLimitsByLimitId']
   if (isRecord(byId)) {
     for (const key of Object.keys(byId).sort()) {
       if (observations.length >= PROVIDER_QUOTA_LIMITS.maxObservationsPerReading) break
-      const observation = normalizeSnapshot(key, byId[key], context)
+      const observation = normalizeSnapshot(key, byId[key], context, permission)
       if (observation !== null
         && !observations.some((existing) => existing.bucketRef === observation.bucketRef)) {
         observations.push(observation)
@@ -203,7 +220,7 @@ export function normalizeCodexRateLimits(
     }
   }
   if (observations.length === 0) {
-    const single = normalizeSnapshot(null, payload['rateLimits'], context)
+    const single = normalizeSnapshot(null, payload['rateLimits'], context, permission)
     if (single !== null) observations.push(single)
   }
   return observations.length > 0 ? observations : null

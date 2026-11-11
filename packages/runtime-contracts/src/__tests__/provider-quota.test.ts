@@ -25,6 +25,7 @@ const observation: ProviderQuotaObservation = {
   method: "request-response",
   observedAt: "2026-11-11T09:59:00.000Z",
   expiresAt: "2026-11-11T10:04:00.000Z",
+  usagePermission: "allowed",
   windows: [
     { windowRef: "primary", durationMinutes: FIVE, usedPercent: 0, resetsAt: "2026-11-11T12:00:00.000Z" },
     { windowRef: "secondary", durationMinutes: SEVEN, usedPercent: 40, resetsAt: "2026-11-15T00:00:00.000Z" },
@@ -70,6 +71,7 @@ describe("provider quota contract: validation", () => {
     ["negative used", { windows: [{ windowRef: "primary", durationMinutes: FIVE, usedPercent: -1, resetsAt: null }] }],
     ["NaN used", { windows: [{ windowRef: "primary", durationMinutes: FIVE, usedPercent: Number.NaN, resetsAt: null }] }],
     ["fractional duration", { windows: [{ windowRef: "primary", durationMinutes: 1.5, usedPercent: 1, resetsAt: null }] }],
+    ["usage permission", { usagePermission: "maybe" }],
     ["duplicate duration", { windows: [observation.windows[0], { ...observation.windows[0], windowRef: "other" }] }],
   ])("rejects %s", (_name, change) => {
     expect(validateProviderQuotaObservation({ ...observation, ...change })).not.toEqual([]);
@@ -142,8 +144,32 @@ describe("provider quota contract: assessment", () => {
     expect(assessProviderQuotaReading({ ...failed, reason: "nonsense" } as unknown as ProviderQuotaReading, both)[0]!.reason).toBe("malformed");
   });
 
-  it("does not trust a reading labelled stale", () => {
-    const stale: ProviderQuotaReading = { ...reading, status: "stale", reason: "stale", observations: [{ ...observation, expiresAt: "2026-11-11T09:59:30.000Z" }] };
-    expect(assessProviderQuotaReading(stale, both).map((result) => [result.state, result.reason])).toEqual([["unknown", "stale"], ["unknown", "stale"]]);
+  it("does not trust a reading labelled stale, even when its expiry looks fresh", () => {
+    const expired: ProviderQuotaReading = { ...reading, status: "stale", reason: "stale", observations: [{ ...observation, expiresAt: "2026-11-11T09:59:30.000Z" }] };
+    expect(assessProviderQuotaReading(expired, both).map((result) => [result.state, result.reason])).toEqual([["unknown", "stale"], ["unknown", "stale"]]);
+    const labelled: ProviderQuotaReading = { ...reading, status: "stale", reason: "stale" };
+    expect(validateProviderQuotaReading(labelled)).toEqual([]);
+    expect(assessProviderQuotaReading(labelled, both).map((result) => [result.state, result.reason])).toEqual([["unknown", "stale"], ["unknown", "stale"]]);
+  });
+
+  it("never reports capacity for an unknown pool identity", () => {
+    const unknownPool = { ...observation, poolRef: null };
+    expect(assessProviderQuotaObservation(unknownPool, both).map((result) => [result.state, result.reason, result.poolRef])).toEqual([
+      ["unknown", "pool-unknown", null],
+      ["unknown", "pool-unknown", null],
+    ]);
+    expect(assessProviderQuotaObservation(observation, both).map((result) => result.poolRef)).toEqual(["pool-a", "pool-a"]);
+  });
+
+  it("lets a provider's usage denial or unknown permission override low percentages", () => {
+    expect(assessProviderQuotaObservation({ ...observation, usagePermission: "denied" }, both).map((result) => [result.state, result.reason])).toEqual([
+      ["unknown", "usage-not-allowed"],
+      ["unknown", "usage-not-allowed"],
+    ]);
+    expect(assessProviderQuotaObservation({ ...observation, usagePermission: "unknown" }, both).map((result) => [result.state, result.reason])).toEqual([
+      ["unknown", "usage-permission-unknown"],
+      ["unknown", "usage-permission-unknown"],
+    ]);
+    expect(assessProviderQuotaObservation({ ...observation, usagePermission: "not-reported" }, both).map((result) => result.state)).toEqual(["available", "available"]);
   });
 });

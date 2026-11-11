@@ -120,6 +120,32 @@ describe('Codex quota normalization', () => {
     }
   })
 
+  it('takes usage permission from the account and from reached buckets', () => {
+    const permissions = (payload: unknown) => normalizeCodexRateLimits(payload, context)!.map((entry) => entry.usagePermission)
+    expect(permissions(multiBucket)).toEqual(['allowed', 'allowed'])
+    expect(permissions({ ...multiBucket, ordinaryUsageAllowed: false })).toEqual(['denied', 'denied'])
+    expect(permissions({ ...multiBucket, ordinaryUsageAllowed: null })).toEqual(['unknown', 'unknown'])
+    expect(permissions({ rateLimits: snapshot('codex', 1, 2) })).toEqual(['unknown'])
+    const reached = { ...multiBucket, rateLimitsByLimitId: { ...multiBucket.rateLimitsByLimitId, codex: { ...snapshot('codex', 10, 20), rateLimitReachedType: 'rate_limit_reached' } } }
+    expect(permissions(reached)).toEqual(['denied', 'allowed'])
+  })
+
+  it('treats two windows with the same duration as ambiguous', () => {
+    const conflicting = {
+      ordinaryUsageAllowed: true,
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 0, windowDurationMins: FIVE, resetsAt: null },
+        secondary: { usedPercent: 100, windowDurationMins: FIVE, resetsAt: null },
+      },
+    }
+    const [observation] = normalizeCodexRateLimits(conflicting, context)!
+    expect(observation!.windows.map((window) => [window.windowRef, window.durationMinutes, window.usedPercent])).toEqual([
+      ['primary', null, 0],
+      ['secondary', null, 100],
+    ])
+  })
+
   it('returns null for an unusable payload', () => {
     expect(normalizeCodexRateLimits(null, context)).toBeNull()
     expect(normalizeCodexRateLimits({ rateLimits: 'nope' }, context)).toBeNull()
@@ -233,11 +259,34 @@ describe('Codex quota probe', () => {
   })
 
   it('reports exhausted buckets as exhausted, not available', async () => {
-    const client = new FakeClient(async () => ({ rateLimits: snapshot('codex', 100, 30) }))
-    const reading = await createCodexQuotaProbe({ client, poolRef: null, now: () => T0 }).read()
+    const client = new FakeClient(async () => ({ ordinaryUsageAllowed: true, rateLimits: snapshot('codex', 100, 30) }))
+    const reading = await createCodexQuotaProbe({ client, poolRef: 'acct-pool', now: () => T0 }).read()
     const [five, seven] = assessProviderQuotaReading(reading, { ...both, now: new Date(T0).toISOString() })
     expect(five).toMatchObject({ state: 'exhausted', usedPercent: 100 })
     expect(seven).toMatchObject({ state: 'available', usedPercent: 30 })
+  })
+
+  it('never reports availability when the account denies usage or does not say', async () => {
+    const now = new Date(T0).toISOString()
+    for (const [allowed, reason] of [[false, 'usage-not-allowed'], [null, 'usage-permission-unknown']] as const) {
+      const client = new FakeClient(async () => ({ ...multiBucket, ordinaryUsageAllowed: allowed }))
+      const reading = await createCodexQuotaProbe({ client, poolRef: 'acct-pool', now: () => T0 }).read()
+      expect(assessProviderQuotaReading(reading, { ...both, now }).map((entry) => [entry.state, entry.reason])).toEqual([
+        ['unknown', reason], ['unknown', reason], ['unknown', reason], ['unknown', reason],
+      ])
+    }
+    const conflicting = new FakeClient(async () => ({
+      ordinaryUsageAllowed: true,
+      rateLimits: { limitId: 'codex', primary: { usedPercent: 0, windowDurationMins: FIVE, resetsAt: null }, secondary: { usedPercent: 100, windowDurationMins: FIVE, resetsAt: null } },
+    }))
+    const ambiguous = await createCodexQuotaProbe({ client: conflicting, poolRef: 'acct-pool', now: () => T0 }).read()
+    expect(assessProviderQuotaReading(ambiguous, { requiredWindowMinutes: [FIVE], now }).map((entry) => [entry.state, entry.reason])).toEqual([['unknown', 'window-missing']])
+  })
+
+  it('reports no capacity for an unknown pool identity', async () => {
+    const client = new FakeClient(async () => multiBucket)
+    const reading = await createCodexQuotaProbe({ client, poolRef: null, now: () => T0 }).read()
+    expect(assessProviderQuotaReading(reading, { requiredWindowMinutes: [FIVE], now: new Date(T0).toISOString() }).map((entry) => entry.reason)).toEqual(['pool-unknown', 'pool-unknown'])
   })
 
   it('validates its configuration', () => {

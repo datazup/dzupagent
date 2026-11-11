@@ -157,6 +157,8 @@ export function createClaudeQuotaObservationSource(
       method: 'host-ingestion',
       observedAt: providerQuotaInstant(received),
       expiresAt: providerQuotaInstant(received + ttlMs),
+      // The status line carries no separate permission statement.
+      usagePermission: 'not-reported',
       windows,
     }
     const stored = store.put(observation)

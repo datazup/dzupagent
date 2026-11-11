@@ -35,6 +35,7 @@ function observation(overrides: Partial<ProviderQuotaObservation> = {}): Provide
     method: 'host-ingestion',
     observedAt: iso(T0),
     expiresAt: iso(T0 + 300_000),
+    usagePermission: 'not-reported',
     windows: [{ windowRef: 'five_hour', durationMinutes: 300, usedPercent: 12, resetsAt: iso(T0 + 3_600_000) }],
     ...overrides,
   }

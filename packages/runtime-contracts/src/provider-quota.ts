@@ -38,6 +38,21 @@ export type ProviderQuotaCollectionMethod =
   (typeof PROVIDER_QUOTA_COLLECTION_METHODS)[number];
 
 /**
+ * The provider's own statement on whether usage is currently permitted,
+ * separate from window percentages. `unknown` means the provider was asked or
+ * normally reports it but gave no answer; `not-reported` means this provider
+ * has no such statement. Only `allowed` and `not-reported` let windows decide.
+ */
+export const PROVIDER_QUOTA_USAGE_PERMISSIONS = [
+  "allowed",
+  "denied",
+  "unknown",
+  "not-reported",
+] as const;
+export type ProviderQuotaUsagePermission =
+  (typeof PROVIDER_QUOTA_USAGE_PERMISSIONS)[number];
+
+/**
  * Fixed, provider-independent reason codes. Provider-authored error text is
  * never carried; it is mapped to one of these.
  */
@@ -49,6 +64,8 @@ export const PROVIDER_QUOTA_REASON_CODES = [
   "window-missing",
   "used-percent-missing",
   "reset-passed",
+  "usage-not-allowed",
+  "usage-permission-unknown",
   "pool-unknown",
   "unsupported",
   "timeout",
@@ -94,6 +111,8 @@ export interface ProviderQuotaObservation {
   readonly observedAt: string;
   /** After this instant the evidence needs re-observation. */
   readonly expiresAt: string;
+  /** Provider-stated permission; percentages never override a denial. */
+  readonly usagePermission: ProviderQuotaUsagePermission;
   readonly windows: readonly ProviderQuotaWindow[];
 }
 
@@ -132,6 +151,7 @@ export type ProviderQuotaWindowState = "available" | "exhausted" | "unknown";
 
 export interface ProviderQuotaWindowAssessment {
   readonly durationMinutes: number;
+  readonly poolRef: string | null;
   readonly bucketRef: string | null;
   readonly state: ProviderQuotaWindowState;
   /** Reported value; zero stays zero. Null when unknown. */
@@ -229,6 +249,13 @@ export function validateProviderQuotaObservation(value: unknown): readonly strin
   ) {
     issues.push("expiresAt: must be after observedAt");
   }
+  if (
+    !PROVIDER_QUOTA_USAGE_PERMISSIONS.includes(
+      value.usagePermission as ProviderQuotaUsagePermission,
+    )
+  ) {
+    issues.push("usagePermission: unsupported");
+  }
   if (!Array.isArray(value.windows)) {
     issues.push("windows: must be an array");
   } else {
@@ -311,6 +338,7 @@ function unknownWindow(
 ): ProviderQuotaWindowAssessment {
   return {
     durationMinutes,
+    poolRef: observation?.poolRef ?? null,
     bucketRef: observation?.bucketRef ?? null,
     state: "unknown",
     usedPercent: window?.usedPercent ?? null,
@@ -322,9 +350,11 @@ function unknownWindow(
 
 /**
  * Judges each required window of one observation at `now`. Only a valid,
- * unexpired, not-future observation whose window has the exact duration, a
- * reported used percentage and a reset time that has not passed can be
- * `available` or `exhausted`; everything else is `unknown` with a reason.
+ * unexpired, not-future observation of a known pool, whose provider has not
+ * denied or left usage permission unknown, and whose window has the exact
+ * duration, a reported used percentage and a reset time that has not passed,
+ * can be `available` or `exhausted`; everything else is `unknown` with a
+ * reason.
  */
 export function assessProviderQuotaObservation(
   observation: ProviderQuotaObservation,
@@ -342,6 +372,12 @@ export function assessProviderQuotaObservation(
     observationReason = "future-observation";
   } else if (now >= Date.parse(observation.expiresAt)) {
     observationReason = "stale";
+  } else if (observation.poolRef === null) {
+    observationReason = "pool-unknown";
+  } else if (observation.usagePermission === "denied") {
+    observationReason = "usage-not-allowed";
+  } else if (observation.usagePermission === "unknown") {
+    observationReason = "usage-permission-unknown";
   }
   return options.requiredWindowMinutes.map((durationMinutes) => {
     if (observationReason !== null) {
@@ -361,6 +397,7 @@ export function assessProviderQuotaObservation(
     }
     return {
       durationMinutes,
+      poolRef: observation.poolRef,
       bucketRef: observation.bucketRef,
       state: window.usedPercent >= 100 ? "exhausted" : "available",
       usedPercent: window.usedPercent,
@@ -385,10 +422,19 @@ export function assessProviderQuotaReading(
       unknownWindow(minutes, null, "malformed"),
     );
   }
-  if (reading.status !== "current" && reading.status !== "stale") {
-    return options.requiredWindowMinutes.map((minutes) =>
-      unknownWindow(minutes, null, reading.reason),
-    );
+  if (reading.status !== "current") {
+    // A reading already judged stale stays stale, whatever its expiry says.
+    if (reading.status === "stale") {
+      return reading.observations.flatMap((observation) =>
+        options.requiredWindowMinutes.map((minutes) =>
+          unknownWindow(minutes, observation, "stale"),
+        ),
+      );
+    }
+    return options.requiredWindowMinutes.map((minutes) => ({
+      ...unknownWindow(minutes, null, reading.reason),
+      poolRef: reading.poolRef,
+    }));
   }
   return reading.observations.flatMap((observation) =>
     assessProviderQuotaObservation(observation, options),
