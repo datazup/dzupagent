@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentCard, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent, taskStateToJSON } from '@a2a-js/sdk'
-import { AgentEvent, ServerCallContext, type AgentExecutor } from '@a2a-js/sdk/server'
+import { AgentEvent, DefaultExecutionEventBusManager, DefaultRequestHandler, ServerCallContext, type AgentExecutor } from '@a2a-js/sdk/server'
+import { JsonRpcTaskNotCancelableError } from '@a2a-js/sdk/errors'
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
 import { serve, type ServerType } from '@hono/node-server'
 import { request as httpRequest } from 'node:http'
@@ -13,9 +14,9 @@ import type * as TestcontainersModule from 'testcontainers'
 import { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus } from '@dzupagent/core'
 import { createForgeApp } from '../app.js'
 import { createDrizzleA2AV1TaskStore } from '../a2a/v1/drizzle-task-store.js'
-import { VerifiedA2AUser } from '../a2a/v1/identity.js'
+import { VerifiedA2AUser, dzupOwnerResolver } from '../a2a/v1/identity.js'
 import { createA2AV1Handler } from '../a2a/v1/request-handler.js'
-import { A2AV1Recovery, createA2AV1Recovery, type OperationRow, type ScanTimings } from '../a2a/v1/operation-store.js'
+import { A2AV1Recovery, createA2AV1Recovery, type A2AV1RecoveryOptions, type OperationRow, type ScanTimings } from '../a2a/v1/operation-store.js'
 import { applyLateResult, recoverOrphanedA2AV1Tasks } from '../a2a/v1/recovery-scanner.js'
 import { CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, type A2AExecutionPort } from '../a2a/v1/recovery-port.js'
 import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
@@ -101,8 +102,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   /** Recovery needs transactions: a pool gives every writer its own connection (a shared Client would interleave statements). */
   let recPool: PgModule.Pool
   let recDb: DrizzleStoreDatabase
-  const boot = () => createA2AV1Recovery(recDb, { logger: () => {} })
-  const tasks = () => createDrizzleA2AV1TaskStore(dbOf(primary), { logger: () => {} })
+  const boot = (opts: Partial<A2AV1RecoveryOptions> = {}) => createA2AV1Recovery(recDb, { logger: () => {}, ...opts })
+  const tasks = (opts: { cancelHoldBack?: true } = {}) => createDrizzleA2AV1TaskStore(dbOf(primary), { logger: () => {}, ...opts })
   const ops = async () => (await primary.query(
     `SELECT task_id AS "taskId", generation, operation_key AS "operationKey", message_id AS "messageId", boot_id AS "bootId", state,
             recovery_state AS "recoveryState", claim_kind AS "claimKind", claim_token AS "claimToken",
@@ -829,7 +830,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   })
 
   /** HTTP runtime with the official SDK client; `bootRecovery` is the process boot of this runtime. */
-  async function startHttp(recovery: A2AV1Recovery) {
+  async function startHttp(recovery: A2AV1Recovery, store: ReturnType<typeof tasks> = tasks(), extra: { cancelRejects?: boolean } = {}) {
     const executed: string[] = []
     const canceled: string[] = []
     const gates = new Map<string, () => void>()
@@ -844,6 +845,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       },
       async cancelTask(taskId, bus) {
         canceled.push(taskId)
+        if (extra.cancelRejects) throw new Error('fixture-executor-cancel-rejects')
         bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId, contextId: 'context-fixture', status: { state: 'TASK_STATE_CANCELED', timestamp: '2026-10-10T12:00:00Z' } })))
         gates.get(taskId)?.()
       },
@@ -861,7 +863,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
           })[label as 'alice' | 'other'] ?? null },
           a2a: {
             agentCardConfig: { name: 'm3a-http', description: 'M3a', baseUrl: base, version: '1', authType: 'bearer', agents: [] },
-            v1: { executor, taskStore: tasks(), recovery },
+            v1: { executor, taskStore: store, recovery },
           },
         })
         resolve(started)
@@ -1073,6 +1075,493 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       for (const method of ['recoverOrphans', 'recoverOrphanedA2AV1Tasks', 'applyLateResult', 'begin', 'beginOperation', 'latest']) {
         const response = await runtime.raw(method, { id: 'x' })
         expect(JSON.parse(response.text).error).toMatchObject({ code: -32601 })
+      }
+    })
+  })
+
+  // =========================================================================================================================
+  // A2A-M3B-20261111-R1 (admission 0d4601bd): M3b. (a) inspect diagnostics, (b) cancel propagation, (c) is the Scripts adapter.
+  // =========================================================================================================================
+  describe('M3b C0 spike: what the SDK does with a dropped CANCELED save (needs no implementation; green on base by design)', () => {
+    /** A store that silently drops CANCELED saves, as the hold-back will. */
+    const dropping = (inner: ReturnType<typeof tasks>) => ({
+      load: (id: string, context: ServerCallContext) => inner.load(id, context),
+      list: (params: Parameters<typeof inner.list>[0], context: ServerCallContext) => inner.list(params, context),
+      save: async (task: Task, context: ServerCallContext) => { if (task.status?.state === TaskState.TASK_STATE_CANCELED) return; await inner.save(task, context) },
+    })
+    const gatesC0 = new Map<string, () => void>()
+    const spikeExecutor: AgentExecutor = {
+      async execute(context, bus) {
+        bus.publish(AgentEvent.task(fixture(context.taskId, 'TASK_STATE_WORKING', context.contextId)))
+        await new Promise<void>((resolve) => gatesC0.set(context.taskId, resolve))
+      },
+      async cancelTask(taskId, bus) {
+        bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId, contextId: 'context-fixture', status: { state: 'TASK_STATE_CANCELED', timestamp: '2026-10-10T12:00:00Z' } })))
+        gatesC0.get(taskId)?.()
+      },
+    }
+    const reasonOf = (error: unknown) => {
+      const e = error as { name?: string; toErrorInfo?: () => { reason?: string } }
+      return { name: e?.name, reason: typeof e?.toErrorInfo === 'function' ? e.toErrorInfo().reason : undefined }
+    }
+
+    it('C0 an orphaned and a live task both raise TaskNotCancelableError after the dropped save; it is recognised by name and reason and instanceof against @a2a-js/sdk/errors fails', async () => {
+      const handler = new DefaultRequestHandler(card, dropping(tasks()), spikeExecutor, new DefaultExecutionEventBusManager(dzupOwnerResolver))
+      await tasks().save(fixture('c0-orphan', 'TASK_STATE_WORKING'), alice)
+      const orphan = await handler.cancelTask({ id: 'c0-orphan', tenant: '' }, alice).then(() => undefined, (error: unknown) => error)
+      expect(orphan).toBeDefined()
+      expect(reasonOf(orphan)).toEqual({ name: 'TaskNotCancelableError', reason: 'TASK_NOT_CANCELABLE' })
+      expect(orphan instanceof JsonRpcTaskNotCancelableError).toBe(false)
+      expect(await stateOf('c0-orphan')).toBe('TASK_STATE_WORKING')
+
+      const sent = await handler.sendMessage(SendMessageRequest.fromJSON({
+        message: { messageId: 'c0-live', role: 'ROLE_USER', parts: [{ text: 'go', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true },
+      }), alice)
+      const liveId = (sent as Task).id
+      const live = await handler.cancelTask({ id: liveId, tenant: '' }, alice).then(() => undefined, (error: unknown) => error)
+      expect(reasonOf(live)).toEqual({ name: 'TaskNotCancelableError', reason: 'TASK_NOT_CANCELABLE' })
+      expect(await stateOf(liveId)).toBe('TASK_STATE_WORKING')
+    })
+
+    it('C0b records what the SDK does with a live executor\'s later COMPLETED after a dropped CANCELED (documentation, not a gate)', async () => {
+      const handler = new DefaultRequestHandler(card, dropping(tasks()), spikeExecutor, new DefaultExecutionEventBusManager(dzupOwnerResolver))
+      const sent = await handler.sendMessage(SendMessageRequest.fromJSON({
+        message: { messageId: 'c0b-live', role: 'ROLE_USER', parts: [{ text: 'go', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true },
+      }), alice)
+      const id = (sent as Task).id
+      await handler.cancelTask({ id, tenant: '' }, alice).catch(() => undefined)
+      const after = await stateOf(id)
+      // Observation only: the held-back CANCELED never reached the store and the task keeps its non-terminal state.
+      expect(after).toBe('TASK_STATE_WORKING')
+    })
+  })
+
+  describe('M3b A1 inspect and stop diagnostics are fixed and payload-free', () => {
+    it('A1 a thrown inspect, a timed-out inspect and a failed requestStop each emit exactly one fixed record with no id, scope, payload or error text', async () => {
+      const logs: Array<{ level: string; operation: string }> = []
+      const spy = (entry: { level: string; operation: string }) => { logs.push(entry) }
+      const keyThrow = await seed(boot(), 'diag-throw')
+      const keySlow = await seed(boot(), 'diag-slow')
+      const throwing: A2AExecutionPort = { inspect: async (request) => { if (request.operationKey === keyThrow) throw new Error('diag-probe-secret-detail'); return new Promise(() => {}) } }
+      const recovery = boot({ logger: spy, inspectTimeoutMs: 40 })
+      await recoverOrphanedA2AV1Tasks(recovery, throwing, { minAgeMs: 0 })
+      expect(logs.filter((entry) => entry.operation === 'a2a.v1.recovery.inspect')).toEqual([{ level: 'error', operation: 'a2a.v1.recovery.inspect' }])
+      expect(logs.filter((entry) => entry.operation === 'a2a.v1.recovery.inspect-timeout')).toEqual([{ level: 'error', operation: 'a2a.v1.recovery.inspect-timeout' }])
+      expect(JSON.stringify(logs)).not.toContain('diag-probe-secret-detail')
+      expect(JSON.stringify(logs)).not.toContain(keyThrow)
+      expect(JSON.stringify(logs)).not.toContain('diag-throw')
+      expect(await op('diag-throw')).toMatchObject({ recoveryState: 'recovery_required' }) // the outcome stays unknown
+      expect(await op('diag-slow')).toMatchObject({ recoveryState: 'recovery_required' })
+      void keySlow
+    })
+  })
+
+  describe('M3b cancel propagation (handler-owned, port configured)', () => {
+    const canceledState = TaskState.TASK_STATE_CANCELED
+    const stopped = { status: 'stopped', receiptRef: digest('5') }
+    const runningAnswer = { status: 'running', receiptRef: digest('6') }
+    const cancelPort = (answer: unknown | ((request: { operationKey: string; kind?: string }) => unknown), extra: Partial<A2AExecutionPort> = {}): A2AExecutionPort & { inspect: ReturnType<typeof vi.fn> } => ({
+      ...port((request) => (typeof answer === 'function' ? (answer as (r: unknown) => unknown)(request) : answer)), ...extra,
+    })
+    const holdStore = () => tasks({ cancelHoldBack: true })
+
+    /** An orphaned WORKING task left by a dead boot, and a runtime of a new boot that has the port. */
+    async function orphan(answer: unknown, opts: { extra?: Partial<A2AExecutionPort>; recovery?: Partial<A2AV1RecoveryOptions>; text?: string } = {}) {
+      const { id, key } = await orphanFromRestart(opts.text ?? 'working')
+      const p = cancelPort(answer, opts.extra)
+      const recovery = boot({ port: p, ...(opts.recovery ?? {}) })
+      const runtime = await startHttp(recovery, holdStore())
+      return { id, key, p, recovery, runtime, client: await runtime.clientFor() }
+    }
+    /** A live in-process task and a runtime that has the port. */
+    async function live(answer: unknown, extra: Partial<A2AExecutionPort> = {}) {
+      const p = cancelPort(answer, extra)
+      const recovery = boot({ port: p })
+      const runtime = await startHttp(recovery, holdStore())
+      const client = await runtime.clientFor()
+      const sent = await client.sendMessage(send('working'))
+      if (!('id' in sent)) throw new Error('expected task')
+      return { id: sent.id, p, recovery, runtime, client }
+    }
+
+    it.each([
+      ['stopped', stopped, 'TASK_STATE_CANCELED', true],
+      ['not_applied (the work never started: a valid stop)', { status: 'not_applied', receiptRef: digest('7') }, 'TASK_STATE_CANCELED', true],
+    ])('C3 orphan and live: a cancel inspect answered %s writes CANCELED, resolves the operation and stores the receipt', async (_label, answer, taskState, ok) => {
+      expect(ok).toBe(true)
+      for (const make of [orphan, live]) {
+        await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+        const { id, client, p } = await make(answer)
+        const result = await client.cancelTask({ id, tenant: '', metadata: undefined })
+        expect(result.status!.state).toBe(canceledState)
+        expect(await stateOf(id)).toBe(taskState)
+        expect(textOf(await stored(id))).toBe('Task was canceled')
+        const row = await op(id)
+        expect(row).toMatchObject({ state: 'resolved', recoveryState: null })
+        expect(JSON.parse(row.receipt!)).toEqual({ digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), state: (answer as { status: string }).status, byteLength: 0 })
+        expect(p.inspect.mock.calls.map((call) => call[0].kind)).toEqual(['cancel'])
+      }
+    })
+
+    it('C3 a terminal answer writes that state and the cancel returns -32002 (the work finished first); the receipt is stored', async () => {
+      const { id, client } = await orphan({ status: 'terminal', receiptRef: digest('8'), terminal: { state: 'completed' } })
+      await expect(client.cancelTask({ id, tenant: '', metadata: undefined })).rejects.toMatchObject({ envelopeCode: -32002 })
+      expect(await stateOf(id)).toBe('TASK_STATE_COMPLETED')
+      expect(await op(id)).toMatchObject({ state: 'resolved', recoveryState: null })
+      expect((await op(id)).receipt).not.toBeNull()
+    })
+
+    it.each([
+      ['running', runningAnswer],
+      ['an unknown status literal', { status: 'maybe', receiptRef: digest('9') }],
+      ['a bad digest', { status: 'stopped', receiptRef: 'sha256:nope' }],
+      ['an unknown answer', { status: 'unknown' }],
+    ])('C3 an unconfirmed cancel (%s) is recovery_required, the task is not canceled, the hold-back stays and the stored task is returned (D13)', async (_label, answer) => {
+      for (const make of [orphan, live]) {
+        await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+        const { id, client, runtime } = await make(answer)
+        const result = await client.cancelTask({ id, tenant: '', metadata: undefined })
+        expect(result.status!.state).toBe(TaskState.TASK_STATE_WORKING)
+        expect(result.metadata).toMatchObject({ dzupRecovery: 'required' })
+        expect(textOf(result)).toBe(RECOVERY_REQUIRED_TEXT)
+        expect(await op(id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required' })
+        expect(await stateOf(id)).toBe('TASK_STATE_WORKING')
+        void runtime
+      }
+    })
+
+    it('C3/A1 a thrown inspect and a timed-out inspect leave recovery_required with one fixed diagnostic each and no probe text anywhere', async () => {
+      const logs: Array<{ level: string; operation: string }> = []
+      const thrown = await orphan(new Error('cancel-probe-secret') as unknown, { recovery: { logger: (entry: { level: string; operation: string }) => { logs.push(entry) } } })
+      thrown.p.inspect.mockImplementation(async () => { throw new Error('cancel-probe-secret') })
+      const result = await thrown.client.cancelTask({ id: thrown.id, tenant: '', metadata: undefined })
+      expect(result.status!.state).toBe(TaskState.TASK_STATE_WORKING)
+      expect(logs).toEqual([{ level: 'error', operation: 'a2a.v1.recovery.inspect' }])
+      expect(JSON.stringify(result)).not.toContain('cancel-probe-secret')
+      expect(JSON.stringify(await stored(thrown.id))).not.toContain('cancel-probe-secret')
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      logs.length = 0
+      const slow = await orphan({ status: 'unknown' }, { recovery: { inspectTimeoutMs: 40, logger: (entry: { level: string; operation: string }) => { logs.push(entry) } } })
+      slow.p.inspect.mockImplementation(() => new Promise(() => {}))
+      const second = await slow.client.cancelTask({ id: slow.id, tenant: '', metadata: undefined })
+      expect(second.status!.state).toBe(TaskState.TASK_STATE_WORKING)
+      expect(logs).toEqual([{ level: 'error', operation: 'a2a.v1.recovery.inspect-timeout' }])
+      expect(await op(slow.id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required' })
+    })
+
+    it('C3 a generic error from a rejecting executor.cancelTask does not abort the flow: the claim is held and the inspect still runs', async () => {
+      const p = cancelPort(stopped)
+      const recovery = boot({ port: p })
+      const rejecting = await startHttp(recovery, holdStore(), { cancelRejects: true })
+      const client = await rejecting.clientFor()
+      const sent = await client.sendMessage(send('working'))
+      if (!('id' in sent)) throw new Error('expected task')
+      const result = await client.cancelTask({ id: sent.id, tenant: '', metadata: undefined })
+      expect(result.status!.state).toBe(canceledState)
+      expect(p.inspect).toHaveBeenCalledTimes(1)
+    })
+
+    it('C4 requestStop is called exactly once per cancel claim for an orphan and for a live task; executor.cancelTask is called by the SDK for the live task only; a failing or timed-out requestStop leaves the outcome to inspect with one fixed diagnostic', async () => {
+      const stopCalls: unknown[] = []
+      const requestStop = vi.fn(async (request: unknown) => { stopCalls.push(request) })
+      const o = await orphan(stopped, { extra: { requestStop } })
+      await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })
+      expect(requestStop).toHaveBeenCalledTimes(1)
+      expect(stopCalls[0]).toEqual({ operationKey: o.key, tenantId: 'tenant-fixture', taskId: o.id })
+      expect(o.runtime.canceled).toEqual([]) // an orphan has no bus: the SDK never calls executor.cancelTask
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      requestStop.mockClear()
+      const l = await live(stopped, { requestStop })
+      await l.client.cancelTask({ id: l.id, tenant: '', metadata: undefined })
+      expect(requestStop).toHaveBeenCalledTimes(1)
+      expect(l.runtime.canceled).toEqual([l.id]) // the SDK calls the executor for a live task
+      // Failure and timeout: fixed diagnostics, the outcome comes from inspect.
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      const logs: Array<{ level: string; operation: string }> = []
+      const failing = await orphan(stopped, { extra: { requestStop: async () => { throw new Error('stop-probe-secret') } }, recovery: { logger: (entry: { level: string; operation: string }) => { logs.push(entry) } } })
+      expect((await failing.client.cancelTask({ id: failing.id, tenant: '', metadata: undefined })).status!.state).toBe(canceledState)
+      expect(logs).toEqual([{ level: 'error', operation: 'a2a.v1.recovery.stop' }])
+      expect(JSON.stringify(logs)).not.toContain('stop-probe-secret')
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      logs.length = 0
+      const hanging = await orphan(stopped, { extra: { requestStop: () => new Promise(() => {}) }, recovery: { inspectTimeoutMs: 40, logger: (entry: { level: string; operation: string }) => { logs.push(entry) } } })
+      expect((await hanging.client.cancelTask({ id: hanging.id, tenant: '', metadata: undefined })).status!.state).toBe(canceledState)
+      expect(logs).toEqual([{ level: 'error', operation: 'a2a.v1.recovery.stop-timeout' }])
+    })
+
+    it('C4 the scanner never calls requestStop', async () => {
+      const requestStop = vi.fn(async () => {})
+      const { key } = await orphanFromRestart()
+      await age()
+      const recovery = boot({ port: cancelPort(stopped, { requestStop }) })
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='cancel', claim_token='dead', recovery_updated_at = now() - interval '1 hour' WHERE operation_key=$1`, [key])
+      expect(await recoverOrphanedA2AV1Tasks(recovery, undefined, { minAgeMs: 0 })).toEqual([{ operationKey: key, outcome: 'canceled' }])
+      expect(requestStop).not.toHaveBeenCalled()
+    })
+
+    it('C5 re-cancel: from recovery_required a second CancelTask re-runs the claim and the inspect and succeeds on a later stopped; an attached task is cancellable', async () => {
+      let answer: unknown = { status: 'unknown' }
+      const o = await orphan(() => answer)
+      expect((await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })).status!.state).toBe(TaskState.TASK_STATE_WORKING)
+      expect(await op(o.id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required' })
+      answer = stopped
+      expect((await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })).status!.state).toBe(canceledState)
+      expect(o.p.inspect).toHaveBeenCalledTimes(2)
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      // attached: a scanner attached it, then it is cancelled
+      const a = await orphan(stopped)
+      await age()
+      await recoverOrphanedA2AV1Tasks(boot(), port({ [a.key]: running }), { minAgeMs: 0 })
+      expect(await op(a.id)).toMatchObject({ recoveryState: 'attached' })
+      expect((await a.client.cancelTask({ id: a.id, tenant: '', metadata: undefined })).status!.state).toBe(canceledState)
+    })
+
+    it('C1 the cancel claim: succeeds from started, attached, recovery_required, an expired recovering, on the same boot and on another boot younger than minAgeMs; an unexpired claim is refused; resolved is not claimable; it stamps the current boot', async () => {
+      const claimant = boot({ port: cancelPort(stopped) })
+      for (const [label, prepare] of [
+        ['started', async () => {}],
+        ['attached', async (id: string) => { await primary.query(`UPDATE a2a_v1_operations SET recovery_state='attached' WHERE task_id=$1`, [id]) }],
+        ['recovery_required', async (id: string) => { await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovery_required' WHERE task_id=$1`, [id]) }],
+        ['expired recovering', async (id: string) => { await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovering', claim_kind='scan', claim_token='old', recovery_updated_at = now() - interval '1 hour' WHERE task_id=$1`, [id]) }],
+      ] as const) {
+        const id = `c1-${label.replace(/\s/g, '-')}`
+        await seed(boot(), id) // another boot, just begun (younger than minAgeMs)
+        await prepare(id)
+        const claimed = await claimant.claimCancel(alice, id, `token-${id}`)
+        expect(claimed, label).toBeDefined()
+        expect(await op(id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovering', claimKind: 'cancel', claimToken: `token-${id}`, bootId: claimant.bootId })
+      }
+      // The same boot (a live cancel) claims too.
+      const same = boot({ port: cancelPort(stopped) })
+      await same.begin(alice, 'c1-same-boot', 'm1')
+      await tasks().save(fixture('c1-same-boot'), alice)
+      expect(await same.claimCancel(alice, 'c1-same-boot', 'tok-same')).toBeDefined()
+      // An unexpired claim by anyone is refused; the holder keeps its token.
+      expect(await claimant.claimCancel(alice, 'c1-same-boot', 'tok-other')).toBeUndefined()
+      expect(await op('c1-same-boot')).toMatchObject({ claimToken: 'tok-same' })
+      // A resolved operation is not claimable.
+      await seed(boot(), 'c1-resolved')
+      await primary.query(`UPDATE a2a_v1_operations SET state='resolved' WHERE task_id='c1-resolved'`)
+      expect(await claimant.claimCancel(alice, 'c1-resolved', 'tok-r')).toBeUndefined()
+      // Only the latest generation is claimable.
+      const gens = boot({ port: cancelPort(stopped) })
+      await gens.begin(alice, 'c1-gen', 'm1')
+      await gens.begin(alice, 'c1-gen', 'm2')
+      expect(await gens.claimCancel(alice, 'c1-gen', 'tok-g')).toBeDefined()
+      expect(await op('c1-gen', 1)).toMatchObject({ state: 'started', recoveryState: null })
+      expect(await op('c1-gen', 2)).toMatchObject({ state: 'cancel_pending' })
+    })
+
+    it('C2 the hold-back: CANCELED saves are refused only while the latest operation is cancel_pending and the store has the option; a superseded generation, COMPLETED and a store without the option are untouched', async () => {
+      const recovery = boot({ port: cancelPort(stopped) })
+      const guarded = tasks({ cancelHoldBack: true })
+      const plain = tasks()
+      expect(guarded.cancelHoldBack).toBe(true)
+      expect(plain.cancelHoldBack).toBe(false)
+      await seed(recovery, 'c2-a')
+      await recovery.claimCancel(alice, 'c2-a', 'tok-a')
+      await guarded.save(fixture('c2-a', 'TASK_STATE_CANCELED'), alice)
+      expect(await stateOf('c2-a')).toBe('TASK_STATE_WORKING') // held back (a silent drop)
+      await plain.save(fixture('c2-a', 'TASK_STATE_CANCELED'), alice)
+      expect(await stateOf('c2-a')).toBe('TASK_STATE_CANCELED') // a store without the option is the M2 statement
+      // COMPLETED is never held back.
+      await seed(recovery, 'c2-b')
+      await recovery.claimCancel(alice, 'c2-b', 'tok-b')
+      await guarded.save(fixture('c2-b', 'TASK_STATE_COMPLETED'), alice)
+      expect(await stateOf('c2-b')).toBe('TASK_STATE_COMPLETED')
+      // A superseded generation does not hold back: generation 2 is the latest and is not cancel_pending.
+      await seed(recovery, 'c2-c', 'TASK_STATE_WORKING', 'm1')
+      await recovery.claimCancel(alice, 'c2-c', 'tok-c')
+      await recovery.begin(alice, 'c2-c', 'm2')
+      await guarded.save(fixture('c2-c', 'TASK_STATE_CANCELED'), alice)
+      expect(await stateOf('c2-c')).toBe('TASK_STATE_CANCELED')
+      // A non-cancel operation state never holds back.
+      await seed(recovery, 'c2-d')
+      await guarded.save(fixture('c2-d', 'TASK_STATE_CANCELED'), alice)
+      expect(await stateOf('c2-d')).toBe('TASK_STATE_CANCELED')
+    })
+
+    it('C2 createA2AV1Handler throws at construction when the recovery has a port and the store has no cancel hold-back (or is a custom store without the marker)', () => {
+      const withPort = boot({ port: cancelPort(stopped) })
+      const config = { agentCard: card, executor: noExecutor, recovery: withPort }
+      expect(() => createA2AV1Handler({ ...config, taskStore: tasks() })).toThrow(/hold-back/u)
+      expect(() => createA2AV1Handler({ ...config })).toThrow(/hold-back/u)
+      expect(() => createA2AV1Handler({ ...config, taskStore: { load: async () => undefined, save: async () => {}, list: async () => ({ tasks: [], nextPageToken: '', pageSize: 0, totalSize: 0 }) } })).toThrow(/hold-back/u)
+      expect(() => createA2AV1Handler({ ...config, taskStore: tasks({ cancelHoldBack: true }) })).not.toThrow()
+      // Without a port nothing is required.
+      expect(() => createA2AV1Handler({ agentCard: card, executor: noExecutor, taskStore: tasks(), recovery: boot() })).not.toThrow()
+    })
+
+    it('C6 restart: an expired cancel claim of a dead boot is resolved by the scanner with the cancel kind; an unexpired claim is never claimed whatever its boot; a double crash (a scan reclaim of the cancel row) is reclaimed again', async () => {
+      const { key } = await orphanFromRestart()
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='cancel', claim_token='dead', boot_id='dead-boot', recovery_updated_at = now() WHERE operation_key=$1`, [key])
+      const p = cancelPort(stopped)
+      const scanner = boot({ port: p })
+      expect(await recoverOrphanedA2AV1Tasks(scanner, undefined, { minAgeMs: 0 })).toEqual([]) // unexpired: never claimed
+      expect(p.inspect).not.toHaveBeenCalled()
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '1 hour' WHERE operation_key=$1`, [key])
+      expect(await recoverOrphanedA2AV1Tasks(scanner, undefined, { minAgeMs: 0 })).toEqual([{ operationKey: key, outcome: 'canceled' }])
+      expect(p.inspect.mock.calls.map((call) => call[0].kind)).toEqual(['cancel'])
+      expect(await op((await ops()).find((row) => row.operationKey === key)!.taskId)).toMatchObject({ state: 'resolved', recoveryState: null })
+      // Double crash: the scanner reclaimed the cancel row as kind scan, crashed, and the claim expired again.
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      const again = await orphanFromRestart()
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='scan', claim_token='dead2', boot_id='dead-boot-2', recovery_updated_at = now() - interval '1 hour' WHERE operation_key=$1`, [again.key])
+      expect(await recoverOrphanedA2AV1Tasks(boot({ port: cancelPort(stopped) }), undefined, { minAgeMs: 0 })).toEqual([{ operationKey: again.key, outcome: 'canceled' }])
+    })
+
+    it('C6 a scanner cancel claim answered running is recovery_required (not attached) and stores no receipt, the hold-back stays; the dispatch kind keeps attaching', async () => {
+      const { key, id } = await orphanFromRestart()
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='cancel', claim_token='dead', boot_id='dead-boot', recovery_updated_at = now() - interval '1 hour' WHERE operation_key=$1`, [key])
+      expect(await recoverOrphanedA2AV1Tasks(boot({ port: cancelPort(runningAnswer) }), undefined, { minAgeMs: 0 })).toEqual([{ operationKey: key, outcome: 'recovery_required' }])
+      expect(await op(id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required', receipt: null })
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      const dispatch = await orphanFromRestart()
+      await age()
+      expect(await recoverOrphanedA2AV1Tasks(boot({ port: cancelPort(runningAnswer) }), undefined)).toEqual([{ operationKey: dispatch.key, outcome: 'attached' }])
+    })
+
+    it('C7 interleavings: a cancel claim racing a scan claim, a late claim, a follow-up begin and another cancel serialise on the per-task lock', async () => {
+      await seed(boot(), 'c7-race')
+      await age()
+      const key = (await op('c7-race')).operationKey as string
+      const holder = await newClient()
+      await holder.query('BEGIN')
+      const lock = `a2a:v1:recovery:${JSON.stringify(['tenant-fixture', JSON.stringify(['tenant-fixture', 'alice-fixture']), 'c7-race'])}`
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 4121955))', [lock])
+      try {
+        const writer = boot({ port: cancelPort(stopped) })
+        const settled: string[] = []
+        const tracked = <T,>(name: string, promise: Promise<T>) => promise.then((value) => { settled.push(name); return value })
+        const claim = tracked('cancel', writer.claimCancel(alice, 'c7-race', 'tok-1'))
+        const second = tracked('cancel2', boot({ port: cancelPort(stopped) }).claimCancel(alice, 'c7-race', 'tok-2'))
+        const scan = tracked('scan', recoverOrphanedA2AV1Tasks(boot({ port: cancelPort(stopped) }), undefined, { minAgeMs: 0 }))
+        const next = tracked('begin', boot().begin(alice, 'c7-race', 'm2'))
+        await vi.waitFor(async () => expect(Number((await primary.query(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event = 'advisory'`)).rows[0].n)).toBeGreaterThanOrEqual(3), { timeout: 15_000, interval: 50 })
+        expect(settled).toEqual([])
+        await holder.query('COMMIT')
+        await Promise.all([claim, second, scan, next])
+        expect(settled.length).toBe(4)
+      } finally { await holder.query('ROLLBACK').catch(() => {}) }
+      void key
+    })
+
+    it('C7 a live COMPLETED racing a cancel: the first terminal write wins and the cancel returns -32002; a stale-token cancel commit is refused and returns the stored task', async () => {
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => { release = resolve })
+      const o = await orphan(async () => { await hold; return stopped })
+      const pending = o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined }).then((value) => ({ value }), (error: unknown) => ({ error }))
+      await vi.waitFor(() => expect(o.p.inspect).toHaveBeenCalled(), { timeout: 15_000, interval: 25 })
+      await tasks().save(fixture(o.id, 'TASK_STATE_COMPLETED'), alice) // the live work finished first
+      release()
+      expect(await pending).toMatchObject({ error: { envelopeCode: -32002 } })
+      expect(await stateOf(o.id)).toBe('TASK_STATE_COMPLETED')
+      // Stale token: a scanner reclaims the expired cancel claim while the handler is still inspecting.
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      let release2!: () => void
+      const hold2 = new Promise<void>((resolve) => { release2 = resolve })
+      const s = await orphan(async () => { await hold2; return stopped })
+      const second = s.client.cancelTask({ id: s.id, tenant: '', metadata: undefined })
+      await vi.waitFor(() => expect(s.p.inspect).toHaveBeenCalled(), { timeout: 15_000, interval: 25 })
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '1 hour' WHERE task_id=$1`, [s.id])
+      const scanner = boot({ port: cancelPort({ status: 'running', receiptRef: digest('a') }) })
+      await recoverOrphanedA2AV1Tasks(scanner, undefined, { minAgeMs: 0 })
+      expect(await op(s.id)).toMatchObject({ recoveryState: 'recovery_required', claimToken: expect.not.stringMatching(/^$/u) })
+      release2()
+      const returned = await second
+      expect(returned.status!.state).toBe(TaskState.TASK_STATE_WORKING) // the stale handler wrote nothing and returned the stored task
+      expect(await stateOf(s.id)).toBe('TASK_STATE_WORKING')
+    })
+
+    it('C7 applyLateResult on a cancel-resolved row is refused (the receipt is stored: first record wins)', async () => {
+      const o = await orphan(stopped)
+      await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })
+      expect(await applyLateResult(boot(), o.key, { state: 'completed', parts: [{ text: 'late' }] })).toBe('refused')
+    })
+
+    it('C8 -32002 on the wire is the M1 fixed text for a terminal task, an in-progress claim and a lost race; no probe string from a port or executor appears in any response, log or persisted task', async () => {
+      const o = await orphan(stopped)
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='cancel', claim_token='other', recovery_updated_at = now() WHERE task_id=$1`, [o.id])
+      const inProgress = await o.runtime.raw('CancelTask', { id: o.id })
+      expect(JSON.parse(inProgress.text).error).toEqual(expect.objectContaining({ code: -32002, message: 'Task cannot be canceled' }))
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      const done = await orphan(stopped)
+      await done.client.cancelTask({ id: done.id, tenant: '', metadata: undefined })
+      const terminal = await done.runtime.raw('CancelTask', { id: done.id })
+      expect(JSON.parse(terminal.text).error).toEqual(expect.objectContaining({ code: -32002, message: 'Task cannot be canceled' }))
+      expect(terminal.text).not.toMatch(/probe|secret/u)
+    })
+
+    it('C9 generation n+1: a follow-up during cancel_pending supersedes generation n (the hold-back no longer applies, a late result for n is stale)', async () => {
+      const recovery = boot({ port: cancelPort(stopped) })
+      const key1 = await seed(recovery, 'c9', 'TASK_STATE_WORKING', 'm1')
+      await recovery.claimCancel(alice, 'c9', 'tok')
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovery_required' WHERE task_id='c9'`)
+      await recovery.begin(alice, 'c9', 'm2')
+      await tasks({ cancelHoldBack: true }).save(fixture('c9', 'TASK_STATE_CANCELED'), alice)
+      expect(await stateOf('c9')).toBe('TASK_STATE_CANCELED')
+      expect(await applyLateResult(recovery, key1, { state: 'completed', parts: [{ text: 'x' }] })).toBe('stale')
+    })
+
+    it('C10 with a port, a task in INPUT_REQUIRED or AUTH_REQUIRED still takes the M2 synthetic cancel (no claim, no inspect), unless the latest operation is cancel_pending (then -32002)', async () => {
+      const o = await orphan(stopped, { text: 'input' })
+      expect(await stateOf(o.id)).toBe('TASK_STATE_INPUT_REQUIRED')
+      const canceled = await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })
+      expect(canceled.status!.state).toBe(canceledState)
+      expect(o.p.inspect).not.toHaveBeenCalled()
+      expect(await op(o.id)).toMatchObject({ state: 'started', recoveryState: null })
+      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+      const p = await orphan(stopped, { text: 'input' })
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovery_required' WHERE task_id=$1`, [p.id])
+      await expect(p.client.cancelTask({ id: p.id, tenant: '', metadata: undefined })).rejects.toMatchObject({ envelopeCode: -32002 })
+      expect(await stateOf(p.id)).toBe('TASK_STATE_INPUT_REQUIRED')
+    })
+
+    it('C11 projection: cancel_pending + recovery_required shows the marker (never persisted); cancel_pending + recovering does not', async () => {
+      const o = await orphan({ status: 'unknown' })
+      await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })
+      const got = await o.client.getTask({ id: o.id, tenant: '' })
+      expect(got.metadata).toMatchObject({ dzupRecovery: 'required' })
+      expect(JSON.stringify((await primary.query(`SELECT task FROM a2a_v1_tasks WHERE id=$1`, [o.id])).rows[0].task)).not.toContain('dzupRecovery')
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovering', claim_kind='cancel' WHERE task_id=$1`, [o.id])
+      expect((await o.client.getTask({ id: o.id, tenant: '' })).metadata?.dzupRecovery).toBeUndefined()
+    })
+
+    it('C12 handler and scanner agree: the port and the timings come from the recovery instance; the scanner takes the instance port, accepts a passed port when the instance has none, throws when both exist and differ, and a per-call value that differs from an explicit instance value throws', async () => {
+      const own = cancelPort(stopped)
+      const instance = boot({ port: own, claimTtlMs: 120_000, inspectTimeoutMs: 5_000 })
+      expect(instance.port).toBe(own)
+      expect(instance.claimTtlMs).toBe(120_000)
+      expect(instance.inspectTimeoutMs).toBe(5_000)
+      expect(boot({ claimTtlMs: 8_000, inspectTimeoutMs: 10_000 }).inspectTimeoutMs).toBe(2_000) // clamped to claimTtlMs / 4
+      expect(boot({ claimTtlMs: 8_000 }).inspectTimeoutMs).toBe(2_000)
+      expect(boot().inspectTimeoutMs).toBe(10_000)
+      expect(boot().claimTtlMs).toBe(300_000)
+      expect(boot().minAgeMs).toBe(60_000)
+      await expect(recoverOrphanedA2AV1Tasks(instance, cancelPort(stopped), { minAgeMs: 0 })).rejects.toThrow(/port/u)
+      await expect(recoverOrphanedA2AV1Tasks(instance, undefined, { claimTtlMs: 5_000, minAgeMs: 0 })).rejects.toThrow(/claimTtlMs/u)
+      await expect(recoverOrphanedA2AV1Tasks(instance, undefined, { inspectTimeoutMs: 1, minAgeMs: 0 })).rejects.toThrow(/inspectTimeoutMs/u)
+      // A per-call value is compared against the CLAMPED instance value.
+      const clamped = boot({ claimTtlMs: 8_000, inspectTimeoutMs: 10_000 })
+      await expect(recoverOrphanedA2AV1Tasks(clamped, undefined, { inspectTimeoutMs: 10_000, minAgeMs: 0 })).rejects.toThrow(/inspectTimeoutMs/u)
+      await expect(recoverOrphanedA2AV1Tasks(clamped, undefined, { inspectTimeoutMs: 2_000, minAgeMs: 0 })).resolves.toEqual([])
+      await expect(recoverOrphanedA2AV1Tasks(boot({ minAgeMs: 5_000 }), undefined, { minAgeMs: 1 })).rejects.toThrow(/minAgeMs/u)
+      // An instance without a port accepts a passed port (every M3a call keeps working).
+      await expect(recoverOrphanedA2AV1Tasks(boot(), cancelPort(stopped), { minAgeMs: 0 })).resolves.toEqual([])
+    })
+
+    it('C13 new behaviours: without a port a leftover cancel_pending row makes CancelTask return -32002 (the widened guard); after each cancel resolution the receipt is stored, recovery_state is null and the operation is resolved', async () => {
+      const { id } = await orphanFromRestart()
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovery_required' WHERE task_id=$1`, [id])
+      const noPort = await startHttp(boot(), tasks())
+      await expect((await noPort.clientFor()).cancelTask({ id, tenant: '', metadata: undefined })).rejects.toMatchObject({ envelopeCode: -32002 })
+      expect(noPort.canceled).toEqual([])
+      for (const [index, answer] of [[1, stopped], [2, { status: 'not_applied', receiptRef: digest('b') }], [3, { status: 'terminal', receiptRef: digest('c'), terminal: { state: 'failed' } }]] as const) {
+        await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
+        const o = await orphan(answer)
+        await o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined }).catch(() => undefined)
+        expect(await op(o.id), String(index)).toMatchObject({ state: 'resolved', recoveryState: null })
+        expect((await op(o.id)).receipt).not.toBeNull()
       }
     })
   })

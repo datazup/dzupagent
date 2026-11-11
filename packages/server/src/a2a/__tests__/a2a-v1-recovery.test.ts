@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, operationKeyFor, parseInspectAnswer, parseTextParts,
+  CANCELED_TEXT, CANCEL_REFUSED_TEXT, RECOVERY_DEFAULTS, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, isDispatchOutstanding, operationKeyFor, parseInspectAnswer, parseTextParts,
   shouldProjectRecovery, type OperationView,
 } from '../v1/recovery-port.js'
 
@@ -105,5 +105,54 @@ describe('A2A M3a recovery: port answers, key format, projection and cancel guar
     ['no operation row (M2 behaviour)', undefined, 'TASK_STATE_WORKING', 'boot-b', false],
   ])('R4 cancel guard: %s', (_label, operation, taskState, currentBoot, expected) => {
     expect(cancelGuardRefuses(operation, taskState, currentBoot)).toBe(expected)
+  })
+})
+
+// A2A-M3B-20261111-R1 admission 0d4601bd (D3, D2.6, D13): the cancel kind of the port answer, projection and guard (pure logic).
+describe('A2A M3b cancel propagation: port answer kind, projection, guard and defaults (pure logic)', () => {
+  it('C3 `stopped` is a cancel-kind answer only: accepted for cancel, still unknown for dispatch and for a missing kind', () => {
+    const raw = { status: 'stopped', receiptRef: digest }
+    expect(parseInspectAnswer(raw, 'cancel')).toEqual({ status: 'stopped', receiptRef: digest })
+    expect(parseInspectAnswer(raw, 'dispatch')).toBeUndefined()
+    expect(parseInspectAnswer(raw)).toBeUndefined()
+  })
+
+  it('C3 a cancel-kind answer is still receipted and still one of the literals', () => {
+    expect(parseInspectAnswer({ status: 'stopped' }, 'cancel')).toBeUndefined()
+    expect(parseInspectAnswer({ status: 'stopped', receiptRef: 'sha256:nope' }, 'cancel')).toBeUndefined()
+    expect(parseInspectAnswer({ status: 'canceled', receiptRef: digest }, 'cancel')).toBeUndefined()
+    expect(parseInspectAnswer({ status: 'not_applied', receiptRef: digest }, 'cancel')?.status).toBe('not_applied')
+    expect(parseInspectAnswer({ status: 'terminal', receiptRef: digest, terminal: { state: 'completed' } }, 'cancel')?.status).toBe('terminal')
+  })
+
+  it.each([
+    ['cancel_pending + recovery_required', op({ state: 'cancel_pending', recoveryState: 'recovery_required' }), 'TASK_STATE_WORKING', true],
+    ['cancel_pending + recovering (transient)', op({ state: 'cancel_pending', recoveryState: 'recovering', claimKind: 'cancel' }), 'TASK_STATE_WORKING', false],
+    ['cancel_pending on a terminal task', op({ state: 'cancel_pending', recoveryState: 'recovery_required' }), 'TASK_STATE_COMPLETED', false],
+    ['a resolved cancel', op({ state: 'resolved', recoveryState: null }), 'TASK_STATE_WORKING', false],
+  ])('C11 projection: %s', (_label, operation, taskState, expected) => {
+    expect(shouldProjectRecovery(operation, taskState)).toBe(expected)
+  })
+
+  it.each([
+    ['a leftover cancel_pending row on a WORKING task', op({ state: 'cancel_pending', recoveryState: 'recovery_required' }), 'TASK_STATE_WORKING', 'boot-a', true],
+    ['a leftover cancel_pending row on an INPUT_REQUIRED task', op({ state: 'cancel_pending', recoveryState: 'recovery_required' }), 'TASK_STATE_INPUT_REQUIRED', 'boot-a', true],
+    ['a cancel_pending row with a live claim', op({ state: 'cancel_pending', recoveryState: 'recovering', claimKind: 'cancel' }), 'TASK_STATE_WORKING', 'boot-a', true],
+    ['a cancel_pending row of a terminal task', op({ state: 'cancel_pending', recoveryState: 'recovery_required' }), 'TASK_STATE_COMPLETED', 'boot-a', false],
+  ])('C13 the guard of a recovery instance without a port: %s', (_label, operation, taskState, currentBoot, expected) => {
+    expect(cancelGuardRefuses(operation, taskState, currentBoot)).toBe(expected)
+  })
+
+  it('C1 a dispatch can be outstanding only for SUBMITTED and WORKING tasks (INPUT_REQUIRED and AUTH_REQUIRED keep the M2 synthetic cancel)', () => {
+    expect(isDispatchOutstanding('TASK_STATE_SUBMITTED')).toBe(true)
+    expect(isDispatchOutstanding('TASK_STATE_WORKING')).toBe(true)
+    for (const state of ['TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED', 'TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED']) {
+      expect(isDispatchOutstanding(state)).toBe(false)
+    }
+  })
+
+  it('C12 the shared defaults and the fixed cancel text', () => {
+    expect(RECOVERY_DEFAULTS).toEqual({ minAgeMs: 60_000, claimTtlMs: 300_000, inspectTimeoutMs: 10_000 })
+    expect(CANCELED_TEXT).toBe('Task was canceled')
   })
 })
