@@ -836,7 +836,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   })
 
   /** HTTP runtime with the official SDK client; `bootRecovery` is the process boot of this runtime. */
-  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean } = {}) {
+  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string } = {}) {
     const executed: string[] = []
     const canceled: string[] = []
     const completedPublished: string[] = []
@@ -849,6 +849,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         const state = text === 'working' ? 'TASK_STATE_WORKING' : 'TASK_STATE_INPUT_REQUIRED'
         bus.publish(AgentEvent.task(fixture(context.taskId, state, context.contextId)))
         if (state === 'TASK_STATE_WORKING') await new Promise<void>((resolve) => gates.set(context.taskId, resolve))
+        if (extra.executeRejectsAfterCancel) throw new Error(extra.executeRejectsAfterCancel)
         if (extra.completeAfterCancel) { bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId: context.taskId, contextId: context.contextId, status: { state: 'TASK_STATE_COMPLETED', timestamp: '2026-10-10T12:30:00Z' } }))); completedPublished.push(context.taskId) }
       },
       async cancelTask(taskId, bus) {
@@ -1631,7 +1632,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       const runtime = await startHttp(recovery, holdStoreR2(), opts.http ?? {})
       return { id, key, p, recovery, runtime, client: await runtime.clientFor() }
     }
-    const liveR2 = async (answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; http?: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelPublishesUnclonable?: boolean } } = {}) => {
+    const liveR2 = async (answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; http?: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string } } = {}) => {
       const p = cancelPortR2(answer, opts.extra)
       const recovery = boot({ port: p, ...(opts.recovery ?? {}) })
       const runtime = await startHttp(recovery, holdStoreR2(), opts.http ?? {})
@@ -1752,7 +1753,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         expect(await op('m2-race')).toMatchObject({ state: 'cancel_pending', claimToken: 'tok-m2' })
       })
 
-      it('a CANCELED save that starts after the claim committed is held back even when it waits on the task row', async () => {
+      it('a CANCELED save that starts after the claim committed is held back even when it waits on the task row (the predicate sees the committed claim; the lock-order test above is the discriminating one)', async () => {
         const recovery = boot({ port: cancelPortR2(stoppedAnswer) })
         await seed(recovery, 'm2-after')
         await recovery.claimCancel(alice, 'm2-after', 'tok-after')
@@ -1919,7 +1920,9 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
 
     describe('M3b round 3: cancel-scoped logging reaches the logger only as fixed payload-free records (every sink reachable from cancelTask)', () => {
       const probe = 'r3-probe-secret-detail'
-      const consoleText = () => JSON.stringify(vi.mocked(console.error).mock.calls)
+      // every console sink: the SDK itself writes console.warn / console.log on some paths
+      beforeEach(() => { vi.spyOn(console, 'warn').mockImplementation(() => {}); vi.spyOn(console, 'log').mockImplementation(() => {}) })
+      const consoleText = () => JSON.stringify([vi.mocked(console.error).mock.calls, vi.mocked(console.warn).mock.calls, vi.mocked(console.log).mock.calls])
       /** A store wrapper that throws a probe error on the k-th load or save, and counts every call. */
       const failingStore = (inner: ReturnType<typeof tasks>, initial: { load?: number; save?: number } = {}) => {
         const plan = { ...initial }
@@ -2036,6 +2039,33 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         const error = await (await runtime.clientFor()).getTask({ id: other.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
         expect(error).toBeDefined()
         expect(consoleText()).toContain(probe) // another task: generic logging
+        releaseInspect()
+        expect((await cancelling).status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+      })
+
+      it('an execute() that rejects with a probe string after the cancel started (the live executor runs in the sendMessage chain, outside the cancel scope) is logged as a fixed record only', async () => {
+        const o = await liveR2(stoppedAnswer, { http: { executeRejectsAfterCancel: probe } })
+        vi.mocked(console.error).mockClear()
+        const result = await cancelCall(o.client, o.id)
+        expect(result.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+        await until(() => expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0))
+        for (let attempt = 0; attempt < 20; attempt += 1) await stateOf(o.id) // let the SDK loop settle
+        expect(consoleText()).not.toContain(probe)
+      })
+
+      it('the in-flight registry is keyed by tenant and owner too: the same task id under another tenant keeps the generic logging while a cancel is held in flight', async () => {
+        let releaseInspect!: () => void
+        const hold = new Promise<void>((resolve) => { releaseInspect = resolve })
+        const o = await orphanR2(async () => { await hold; return stoppedAnswer })
+        const cancelling = cancelCall(o.client, o.id)
+        await until(() => expect(o.p.inspect).toHaveBeenCalled())
+        const wrapped = failingStore(holdStoreR2(), { load: 1 })
+        const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), wrapped.store)
+        vi.mocked(console.error).mockClear()
+        const error = await (await runtime.clientFor('other')).getTask({ id: o.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
+        expect(wrapped.calls.injected).toBe(true)
+        expect(error).toBeDefined()
+        expect(consoleText()).toContain(probe)
         releaseInspect()
         expect((await cancelling).status!.state).toBe(TaskState.TASK_STATE_CANCELED)
       })
