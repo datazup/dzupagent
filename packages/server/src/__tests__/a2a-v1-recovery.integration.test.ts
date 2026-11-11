@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AgentCard, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent } from '@a2a-js/sdk'
+import { AgentCard, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent, taskStateToJSON } from '@a2a-js/sdk'
 import { AgentEvent, ServerCallContext, type AgentExecutor } from '@a2a-js/sdk/server'
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
 import { serve, type ServerType } from '@hono/node-server'
@@ -102,7 +102,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   )).rows as Array<Record<string, any>>
   const op = async (taskId: string, generation = 1) => (await ops()).find((row) => row.taskId === taskId && row.generation === generation)!
   const stored = async (id: string) => tasks().load(id, alice)
-  const stateOf = async (id: string) => (await stored(id))?.status?.state
+  const stateOf = async (id: string) => { const task = await stored(id); return task ? taskStateToJSON(task.status!.state) : undefined }
   const age = async () => { await primary.query(`UPDATE a2a_v1_operations SET created_at = now() - interval '1 hour'`) }
   const expireClaim = async (taskId: string) => { await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '1 hour' WHERE task_id = $1`, [taskId]) }
   /** An orphan as a crashed process leaves it: a begun operation and a persisted non-terminal task. */
@@ -415,9 +415,10 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       let release!: () => void
       const hold = new Promise<void>((resolve) => { release = resolve })
       const slow = port(async () => { await hold; return notApplied })
-      const scanning = scan(boot(), slow)
+      const scanner = boot()
+      const scanning = scan(scanner, slow)
       await vi.waitFor(() => expect(slow.inspect).toHaveBeenCalled())
-      const second = await writer.begin(alice, 'gen-1', 'm2') // a follow-up creates generation 2
+      const second = await scanner.begin(alice, 'gen-1', 'm2') // a follow-up (served by the scanner boot) creates generation 2
       expect(second.generation).toBe(2)
       release()
       expect(await scanning).toEqual([{ operationKey: key1, outcome: 'superseded' }])
@@ -473,7 +474,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         params: SendMessageRequest.toJSON(SendMessageRequest.fromJSON({ message: { messageId: 'same-message', taskId: 'retry-2', contextId: 'context-fixture', role: 'ROLE_USER', parts: [{ text: 'again', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true } })),
       }, alice)
       expect(execute).not.toHaveBeenCalled()
-      expect(JSON.stringify(response)).not.toContain('fixture')
+      expect(JSON.stringify(response)).not.toContain('A2A v1 operation refused')
+      expect(JSON.stringify(response)).toContain('Internal server error')
     })
 
     it('a concurrent retry and scan race never double-resolves: either the retry or the claim wins', async () => {
@@ -655,12 +657,18 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   describe('R4 the cancel guard (cancel propagation itself is deferred to M3b)', () => {
     it('an unscanned other-boot WORKING orphan is refused with -32002 and fixed text, before the SDK runs, even younger than minAgeMs', async () => {
       const { id } = await orphanFromRestart()
-      const second = await startHttp(boot())
+      const recovery = boot()
+      const second = await startHttp(recovery)
       const error = await cancel(await second.clientFor(), id).then(() => undefined, (caught: unknown) => caught)
       expect(error).toMatchObject({ envelopeCode: -32002 })
       const raw = await second.raw('CancelTask', { id })
       expect(JSON.parse(raw.text).error).toMatchObject({ code: -32002 })
-      expect(raw.text).toContain(CANCEL_REFUSED_TEXT)
+      // On the wire the M1 gate rewrites every -32002 to its fixed per-code text; the guard text itself is visible in-process.
+      expect(raw.text).toContain('Task cannot be canceled')
+      expect(raw.text).not.toContain('recovery')
+      const direct = createA2AV1Handler({ agentCard: card, executor: noExecutor, taskStore: tasks(), recovery })
+      const refused = await direct.handler.handle({ jsonrpc: '2.0', id: 'd', method: 'CancelTask', params: { id } }, alice) as { error?: { code: number; message: string } }
+      expect(refused.error).toEqual({ code: -32002, message: CANCEL_REFUSED_TEXT, data: expect.anything() })
       expect(second.canceled).toEqual([])
       expect(await stateOf(id)).toBe('TASK_STATE_WORKING')
     })

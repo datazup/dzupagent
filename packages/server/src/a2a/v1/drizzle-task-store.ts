@@ -220,3 +220,62 @@ export class DrizzleA2AV1TaskStore implements TaskStore {
 export function createDrizzleA2AV1TaskStore(db: DrizzleStoreDatabase, opts: StoreOptions = {}): DrizzleA2AV1TaskStore {
   return new DrizzleA2AV1TaskStore(db, opts)
 }
+
+/** Scope of a row as the scanner sees it: taken from the operation row, never from a caller. */
+export interface RecoveryScope {
+  tenantId: string
+  ownerKey: string
+}
+
+/** Read the stored task JSON and state for recovery (no decode: the recovery writer only rewrites the status). */
+export async function loadTaskForRecovery(
+  db: DrizzleStoreDatabase, scope: RecoveryScope, taskId: string,
+): Promise<{ state: string; task: Record<string, unknown> } | undefined> {
+  const rows = await db.select().from(a2aV1Tasks).where(and(
+    eq(a2aV1Tasks.tenantId, scope.tenantId), eq(a2aV1Tasks.ownerKey, scope.ownerKey), eq(a2aV1Tasks.id, taskId),
+  )).limit(1)
+  const row = rows[0]
+  if (!record(row) || !string(row.state) || !record(row.task)) return undefined
+  return { state: row.state, task: row.task }
+}
+
+/** Builds the recovered task JSON: the stored task with a new terminal status; validated by the same codec as `save`. */
+export function recoveredTaskPayload(
+  stored: Record<string, unknown>, state: string, messageId: string, parts: Array<{ text: string; mediaType?: string }>,
+): Record<string, unknown> {
+  const status = {
+    state, timestamp: new Date().toISOString(),
+    message: { messageId, role: 'ROLE_AGENT', parts: parts.map((part) => ({ text: part.text, mediaType: part.mediaType ?? 'text/plain' })) },
+  }
+  const next = { ...stored, status }
+  const serialized = JSON.stringify(Task.toJSON(Task.fromJSON(next)))
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_BYTES) throw new Error('Internal server error')
+  const parsed: unknown = JSON.parse(serialized)
+  if (!taskJSON(parsed)) throw new Error('Internal server error')
+  return parsed
+}
+
+/**
+ * The single recovery task writer (M3a). It is the M2 guarded write with two differences: it is update-only (it never inserts a
+ * task row) and its WHERE additionally requires the claim fence: the latest operation of the task must carry this claim token in
+ * the `recovering` state. First terminal write still wins. Returns whether a row was written.
+ */
+export async function writeRecoveredTask(
+  db: DrizzleStoreDatabase, scope: RecoveryScope, taskId: string, payload: Record<string, unknown>, token: string,
+): Promise<boolean> {
+  const snapshot = Task.fromJSON(payload)
+  const state = taskStateToJSON(snapshot.status!.state)
+  const fence = sql`exists (select 1 from "a2a_v1_operations" "of" where "of"."tenant_id" = "a2a_v1_tasks"."tenant_id"
+    and "of"."owner_key" = "a2a_v1_tasks"."owner_key" and "of"."task_id" = "a2a_v1_tasks"."id"
+    and "of"."generation" = (select max("o2"."generation") from "a2a_v1_operations" "o2"
+      where "o2"."tenant_id" = "of"."tenant_id" and "o2"."owner_key" = "of"."owner_key" and "o2"."task_id" = "of"."task_id")
+    and "of"."claim_token" = ${token} and "of"."recovery_state" = 'recovering')`
+  const rows = await db.update(a2aV1Tasks).set({
+    contextId: snapshot.contextId, state, statusTimestamp: snapshot.status!.timestamp ? new Date(snapshot.status!.timestamp) : null,
+    task: payload, updatedAt: new Date(),
+  }).where(and(
+    eq(a2aV1Tasks.tenantId, scope.tenantId), eq(a2aV1Tasks.ownerKey, scope.ownerKey), eq(a2aV1Tasks.id, taskId),
+    notInArray(a2aV1Tasks.state, TERMINAL), fence,
+  )!).returning({ id: a2aV1Tasks.id })
+  return rows.length > 0
+}
