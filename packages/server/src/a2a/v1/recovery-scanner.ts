@@ -57,13 +57,16 @@ async function inspectSafely(port: A2AExecutionPort | undefined, row: OperationR
 /** Writes a terminal task status for a claimed row. Returns `written` false when the M2 guard or the claim fence refused it. */
 async function writeTerminal(
   recovery: A2AV1RecoveryStore, row: OperationRow, token: string, state: string, parts: TextPart[],
-): Promise<'written' | 'refused' | 'no_task'> {
+): Promise<'written' | 'already_terminal' | 'fenced' | 'no_task'> {
   const scope = { tenantId: row.tenantId, ownerKey: row.ownerKey }
   const stored = await loadTaskForRecovery(recovery.db, scope, row.taskId)
   if (!stored) return 'no_task'
-  if (isTerminalState(stored.state)) return 'refused'
+  if (isTerminalState(stored.state)) return 'already_terminal'
   const payload = recoveredTaskPayload(stored.task, state, `recovery-${row.operationKey.slice(-12)}`, parts)
-  return (await writeRecoveredTask(recovery.db, scope, row.taskId, payload, token)) ? 'written' : 'refused'
+  if (await writeRecoveredTask(recovery.db, scope, row.taskId, payload, token)) return 'written'
+  // Refused: either a live completion won in the meantime, or the claim fence failed (stale token, superseded generation).
+  const after = await loadTaskForRecovery(recovery.db, scope, row.taskId)
+  return after && isTerminalState(after.state) ? 'already_terminal' : 'fenced'
 }
 
 async function resolveClaimed(
@@ -87,7 +90,7 @@ async function resolveClaimed(
   const state = terminal ? TERMINAL_STATE_NAME[answer.terminal!.state] : 'TASK_STATE_FAILED'
   const parts: TextPart[] = terminal && answer.terminal!.parts ? answer.terminal!.parts : [{ text: terminal ? 'Task finished' : NOT_STARTED_TEXT }]
   const written = await writeTerminal(recovery, row, token, state, parts)
-  if (written === 'refused') {
+  if (written === 'already_terminal' || written === 'fenced') {
     // A live completion (or a later generation) won: nothing to write; the operation is finished and recovery_state is unchanged.
     return (await recovery.finish(row, token, { resolve: true })) ? 'superseded' : 'stale'
   }
@@ -108,9 +111,16 @@ export async function recoverOrphanedA2AV1Tasks(
   const inspectTimeoutMs = options.inspectTimeoutMs ?? DEFAULTS.inspectTimeoutMs
   const results: RecoveryResult[] = []
   const seen = new Set<string>()
+  let limit = options.batch ?? DEFAULTS.batch
   for (;;) {
-    const batch = (await recovery.candidates(timings, options.batch ?? DEFAULTS.batch)).filter((row) => !seen.has(row.operationKey))
-    if (batch.length === 0) return results
+    const raw = await recovery.candidates(timings, limit)
+    const batch = raw.filter((row) => !seen.has(row.operationKey))
+    if (batch.length === 0) {
+      // Rows that failed to claim (or were released) stay candidates: widen the page instead of ending while later rows remain.
+      if (raw.length < limit || limit >= 5000) return results
+      limit *= 2
+      continue
+    }
     for (const candidate of batch) {
       seen.add(candidate.operationKey)
       const token = randomUUID()
@@ -164,6 +174,11 @@ export async function applyLateResult(
     const written = await writeTerminal(recovery, claimed, token, TERMINAL_STATE_NAME[result.state], parts)
     if (written === 'written' || written === 'no_task') {
       return (await recovery.finish(claimed, token, { resolve: true, recoveryState: null, receipt: record })) ? 'applied' : 'busy'
+    }
+    if (written === 'fenced') {
+      // The generation was superseded between the claim and the write: nothing may be applied.
+      await recovery.finish(claimed, token, { resolve: true })
+      return 'stale'
     }
     // The task is already terminal (a live completion won): nothing to apply; record it and resolve the row.
     return (await recovery.finish(claimed, token, { resolve: true, recoveryState: null, receipt: record })) ? 'applied_noop' : 'busy'

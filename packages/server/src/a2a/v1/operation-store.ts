@@ -165,6 +165,17 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
     throw new Error(REFUSED)
   }
 
+  /** True when this messageId already has an operation with a recovery state: a retry of it must be refused before the SDK runs. */
+  async retryUnderRecovery(context: ServerCallContext, taskId: string, messageId: string): Promise<boolean> {
+    const scope = this.scope(context)
+    const rows = await this.db.select().from(a2aV1Operations).where(and(
+      eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey),
+      eq(a2aV1Operations.taskId, taskId), eq(a2aV1Operations.messageId, messageId),
+    )).limit(1)
+    const row = toRow(rows[0])
+    return row !== undefined && row.recoveryState !== null
+  }
+
   /** The latest operation of a task in the caller's scope, for projection and the cancel guard. */
   async latest(context: ServerCallContext, taskId: string): Promise<OperationView | undefined> {
     const scope = this.scope(context)

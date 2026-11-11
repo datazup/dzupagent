@@ -496,6 +496,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await expect(boot().begin(alice, 'retry-2', 'same-message')).rejects.toThrow()
       const execute = vi.fn(async () => {})
       const recovery = boot()
+      const stateBefore = await stateOf('retry-2')
+      const operationBefore = await op('retry-2')
       const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery })
       const response = await v1.handler.handle({
         jsonrpc: '2.0', id: 'retry', method: 'SendMessage',
@@ -504,6 +506,12 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(execute).not.toHaveBeenCalled()
       expect(JSON.stringify(response)).not.toContain('A2A v1 operation refused')
       expect(JSON.stringify(response)).toContain('Internal server error')
+      // The refused retry must not let the SDK persist a synthetic FAILED over the recovered task (review finding).
+      expect((response as { result?: unknown }).result).toBeUndefined()
+      expect(await stateOf('retry-2')).toBe(stateBefore)
+      expect(stateBefore).toBe('TASK_STATE_WORKING')
+      expect(await op('retry-2')).toEqual(operationBefore)
+      expect(operationBefore.recoveryState).toBe('attached')
     })
 
     it('a concurrent retry and scan race never double-resolves: either the retry or the claim wins', async () => {
@@ -522,6 +530,16 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
           expect(row.recoveryState).not.toBeNull()
         }
         expect(results.status).toBe('fulfilled')
+      }
+    })
+  })
+
+  describe('R2 the recovery modules cannot start work (structural)', () => {
+    it('recovery-port, recovery-scanner and operation-store never reference an executor', () => {
+      for (const file of ['recovery-port.ts', 'recovery-scanner.ts', 'operation-store.ts']) {
+        const source = readFileSync(new URL(`../a2a/v1/${file}`, import.meta.url), 'utf8')
+        expect(source.length).toBeGreaterThan(0)
+        expect(source).not.toMatch(/AgentExecutor|\.execute\(|import[^;\n]*executor/i)
       }
     })
   })
@@ -781,6 +799,24 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await scan(recovery, port({ [key]: notApplied }))
       expect(runtime.executed).toEqual([])
       expect(await stateOf(id)).toBe('TASK_STATE_FAILED')
+    })
+  })
+
+  describe('R5 a retried messageId on a recovery-marked task is refused before the SDK runs', () => {
+    it('does not turn an attached task into FAILED and does not call the executor (HTTP, official client)', async () => {
+      const { id, key } = await orphanFromRestart()
+      const recovery = boot()
+      await scan(recovery, port({ [key]: running }))
+      const messageId = (await op(id)).messageId as string
+      const runtime = await startHttp(recovery)
+      const retry = SendMessageRequest.fromJSON({
+        message: { messageId, taskId: id, contextId: 'context-fixture', role: 'ROLE_USER', parts: [{ text: 'working', mediaType: 'text/plain' }] },
+        configuration: { returnImmediately: true },
+      })
+      await expect((await runtime.clientFor()).sendMessage(retry)).rejects.toBeDefined()
+      expect(runtime.executed).toEqual([])
+      expect(await stateOf(id)).toBe('TASK_STATE_WORKING')
+      expect(await op(id)).toMatchObject({ recoveryState: 'attached', state: 'started' })
     })
   })
 

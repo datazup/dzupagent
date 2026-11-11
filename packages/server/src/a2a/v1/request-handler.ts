@@ -1,5 +1,5 @@
 import { Task, TaskState, taskStateToJSON } from "@a2a-js/sdk";
-import type { AgentCard, CancelTaskRequest, GetTaskRequest } from "@a2a-js/sdk";
+import type { AgentCard, CancelTaskRequest, GetTaskRequest, SendMessageRequest } from "@a2a-js/sdk";
 import { JsonRpcTaskNotCancelableError } from "@a2a-js/sdk/errors";
 import {
   DefaultExecutionEventBusManager,
@@ -39,6 +39,33 @@ const OPERATION_KEY_STATE = "dzup.a2a.operationKey";
 
 class DzupRequestHandler extends DefaultRequestHandler {
   recovery?: A2AV1Recovery;
+
+  /**
+   * A retry of a messageId whose operation already has a recovery state is refused before the SDK runs: an executor rejection would
+   * make the SDK persist a synthetic FAILED over a task whose Worker effect is attached or unproven.
+   */
+  private async refuseRetryUnderRecovery(params: SendMessageRequest, context: ServerCallContext): Promise<void> {
+    const recovery = this.recovery;
+    const message = params.message;
+    if (!recovery || !message?.taskId || !message.messageId) return;
+    let refused: boolean;
+    try {
+      refused = await recovery.retryUnderRecovery(context, message.taskId, message.messageId);
+    } catch (error) {
+      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    }
+    if (refused) throw new Error(GENERIC_ERROR);
+  }
+
+  override async sendMessage(params: SendMessageRequest, context: ServerCallContext) {
+    await this.refuseRetryUnderRecovery(params, context);
+    return super.sendMessage(params, context);
+  }
+
+  override async *sendMessageStream(params: SendMessageRequest, context: ServerCallContext) {
+    await this.refuseRetryUnderRecovery(params, context);
+    yield* super.sendMessageStream(params, context);
+  }
 
   override async getTask(params: GetTaskRequest, context: ServerCallContext) {
     const task = await super.getTask(params, context);

@@ -1,6 +1,7 @@
 /**
  * Drizzle ORM schema — agent-to-agent (A2A) protocol tables.
  */
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   varchar,
@@ -98,6 +99,10 @@ export const a2aV1Tasks = pgTable(
     index("a2a_v1_tasks_scope_context_idx").on(table.tenantId, table.ownerKey, table.contextId),
     index("a2a_v1_tasks_scope_status_idx").on(
       table.tenantId, table.ownerKey, table.statusTimestamp.desc(), table.id.desc()
+    ),
+    // M3a (migration 0022): the same ordering with NULLS LAST, matching the list query.
+    index("a2a_v1_tasks_scope_status_nl_idx").on(
+      table.tenantId, table.ownerKey, sql`${table.statusTimestamp} desc nulls last`, table.id.desc()
     ),
   ]
 );
