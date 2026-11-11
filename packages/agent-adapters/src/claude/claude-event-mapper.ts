@@ -269,7 +269,10 @@ export function mapResultMessage(
     const completedEvent = makeCompletedEvent({
       providerId: 'claude',
       sessionId,
-      result: typeof raw.result === 'string' ? raw.result : '',
+      // null or absent structured_output means the SDK returned none: keep the text result.
+      result: raw.structured_output !== undefined && raw.structured_output !== null
+        ? serializeProviderPayload(raw.structured_output) ?? ''
+        : typeof raw.result === 'string' ? raw.result : '',
       usage: tokenUsage,
       durationMs,
       correlationId: input.correlationId,

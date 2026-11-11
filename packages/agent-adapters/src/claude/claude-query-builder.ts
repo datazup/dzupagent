@@ -48,6 +48,11 @@ export function buildQueryOptions({
   if (input.maxBudgetUsd !== undefined) {
     options['maxBudgetUsd'] = input.maxBudgetUsd
   }
+  // The SDK enforces a JSON Schema natively and returns the parsed value as
+  // `structured_output` on the result message (DZA-CLAUDE-SDK-OUTPUT-SCHEMA-20261111-R1).
+  if (input.outputSchema !== undefined) {
+    options['outputFormat'] = { type: 'json_schema', schema: input.outputSchema }
+  }
   if (input.workingDirectory ?? config.workingDirectory) {
     options['cwd'] = input.workingDirectory ?? config.workingDirectory
   }
