@@ -1,23 +1,29 @@
-import { TaskState } from "@a2a-js/sdk";
-import type { AgentCard, CancelTaskRequest, Task } from "@a2a-js/sdk";
+import { Task, TaskState, taskStateToJSON } from "@a2a-js/sdk";
+import type { AgentCard, CancelTaskRequest, GetTaskRequest, SendMessageRequest } from "@a2a-js/sdk";
 import { JsonRpcTaskNotCancelableError } from "@a2a-js/sdk/errors";
 import {
   DefaultExecutionEventBusManager,
   DefaultRequestHandler,
   InMemoryTaskStore,
   JsonRpcTransportHandler,
+  AgentEvent,
   RequestContext,
+  ServerCallContext as SdkServerCallContext,
 } from "@a2a-js/sdk/server";
 import type { AgentExecutor, ExecutionEventBus, ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
 import type { Context } from "hono";
 import { logRouteError } from "../../routes/route-error.js";
 import { dzupOwnerResolver } from "./identity.js";
+import type { A2AV1Recovery } from "./operation-store.js";
+import { CANCEL_REFUSED_TEXT, OperationRefusedError, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, shouldProjectRecovery } from "./recovery-port.js";
 
 export type { AgentExecutor, TaskStore } from "@a2a-js/sdk/server";
 
 export interface A2AV1Config {
   executor: AgentExecutor;
   taskStore?: TaskStore;
+  /** M3a: one instance per process boot (see createA2AV1Recovery). Absent = M2 behaviour, unchanged. */
+  recovery?: A2AV1Recovery;
 }
 
 export interface A2AV1HandlerConfig extends A2AV1Config {
@@ -29,14 +35,79 @@ export interface A2AV1Handler {
   card: AgentCard;
 }
 
+/** Set by the safe executor per call; the executor reads its own operation key here. */
+const OPERATION_KEY_STATE = "dzup.a2a.operationKey";
+
 class DzupRequestHandler extends DefaultRequestHandler {
+  recovery?: A2AV1Recovery;
+
+  /**
+   * A retry of a messageId whose operation already has a recovery state is refused before the SDK runs: an executor rejection would
+   * make the SDK persist a synthetic FAILED over a task whose Worker effect is attached or unproven.
+   */
+  private async refuseRetryUnderRecovery(params: SendMessageRequest, context: ServerCallContext): Promise<void> {
+    const recovery = this.recovery;
+    const message = params.message;
+    if (!recovery || !message?.taskId || !message.messageId) return;
+    let refused: boolean;
+    try {
+      refused = await recovery.retryUnderRecovery(context, message.taskId, message.messageId);
+    } catch (error) {
+      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    }
+    if (refused) throw new Error(GENERIC_ERROR);
+  }
+
+  override async sendMessage(params: SendMessageRequest, context: ServerCallContext) {
+    await this.refuseRetryUnderRecovery(params, context);
+    return super.sendMessage(params, context);
+  }
+
+  override async *sendMessageStream(params: SendMessageRequest, context: ServerCallContext) {
+    await this.refuseRetryUnderRecovery(params, context);
+    yield* super.sendMessageStream(params, context);
+  }
+
+  override async getTask(params: GetTaskRequest, context: ServerCallContext) {
+    const task = await super.getTask(params, context);
+    const recovery = this.recovery;
+    if (!recovery) return task;
+    // Projection happens here, never in store.load: the SDK re-saves a loaded task and a marker would be persisted.
+    let operation;
+    try {
+      operation = await recovery.latest(context, task.id);
+    } catch (error) {
+      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    }
+    if (!shouldProjectRecovery(operation, taskStateToJSON(task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED))) return task;
+    const json = Task.toJSON(task) as Record<string, unknown>;
+    json.status = {
+      ...(json.status as Record<string, unknown>),
+      message: { messageId: "dzup-recovery-required", role: "ROLE_AGENT", parts: [{ text: RECOVERY_REQUIRED_TEXT, mediaType: "text/plain" }] },
+    };
+    json.metadata = { ...((json.metadata as Record<string, unknown> | undefined) ?? {}), dzupRecovery: "required" };
+    return Task.fromJSON(json);
+  }
+
   override async cancelTask(params: CancelTaskRequest, context: ServerCallContext) {
     // The SDK makes repeat cancellation idempotent. M1 requires -32002 for
     // every terminal task, including one already canceled. getTask preserves
     // the SDK's owner/tenant check and not-found response before this check.
-    const task = await this.getTask({ id: params.id, tenant: "" }, context);
+    const task = await super.getTask({ id: params.id, tenant: "" }, context);
     if (task.status?.state === TaskState.TASK_STATE_CANCELED) {
       throw new JsonRpcTaskNotCancelableError();
+    }
+    const recovery = this.recovery;
+    if (recovery) {
+      // M3a: the one cancel guard (cancel propagation is M3b). Runs only after the task is known to exist.
+      let refused: boolean;
+      try {
+        const operation = await recovery.latest(context, task.id);
+        refused = cancelGuardRefuses(operation, taskStateToJSON(task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED), recovery.bootId);
+      } catch (error) {
+        throw logAndSanitize(context, "a2a.v1.recovery", error);
+      }
+      if (refused) throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
     }
     return super.cancelTask(params, context);
   }
@@ -102,12 +173,22 @@ function assertTextOnlyEvent(kind: string, data: Record<string, unknown>): void 
 }
 
 /** Copies the host-visible request context so the executor cannot mutate state the SDK reads later. */
-function copyRequestContext(request: RequestContext): RequestContext {
+function copyRequestContext(request: RequestContext, operationKey?: string): RequestContext {
+  let context = request.context;
+  if (operationKey !== undefined) {
+    // Per-call copy with its own state Map: an executor that replaces the entry changes only its own call.
+    const state = new Map(request.context.state);
+    state.set(OPERATION_KEY_STATE, operationKey);
+    context = new SdkServerCallContext({
+      requestedExtensions: request.context.requestedExtensions, user: request.context.user, tenant: request.context.tenant,
+      requestedVersion: request.context.requestedVersion, state,
+    });
+  }
   return new RequestContext(
     structuredClone(request.request),
     request.taskId,
     request.contextId,
-    request.context,
+    context,
     request.task ? structuredClone(request.task) : undefined,
     request.referenceTasks ? structuredClone(request.referenceTasks) : undefined
   );
@@ -208,13 +289,34 @@ export function createA2AV1Handler({
   agentCard,
   executor,
   taskStore = new InMemoryTaskStore(dzupOwnerResolver),
+  recovery,
 }: A2AV1HandlerConfig): A2AV1Handler {
   // The SDK turns executor rejections into FAILED task messages. Sanitize before
   // that conversion so a later GetTask cannot disclose the original exception.
+  const safeStore = sanitizeTaskStore(taskStore);
   const safeExecutor: AgentExecutor = {
     async execute(request, bus) {
       try {
-        await executor.execute(copyRequestContext(request), sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
+        // M3a: the operation row is committed before the executor runs, so a crash after the call always leaves a key to inspect.
+        // A refused begin (a message already under recovery) never invokes the executor.
+        let began: { operationKey: string } | undefined;
+        if (recovery) {
+          try {
+            began = await recovery.begin(request.context, request.taskId, request.userMessage.messageId);
+          } catch (error) {
+            if (error instanceof OperationRefusedError) {
+              // A claim landed after the retry pre-check. An executor rejection would make the SDK persist a synthetic FAILED over a
+              // task whose effect is attached or unproven, so re-publish the stored task unchanged instead; the executor is not invoked.
+              const stored = await safeStore.load(request.taskId, request.context);
+              if (stored) {
+                bus.publish(AgentEvent.task(stored));
+                return;
+              }
+            }
+            throw error;
+          }
+        }
+        await executor.execute(copyRequestContext(request, began?.operationKey), sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
       } catch (error) {
         throw logAndSanitize(request.context, "a2a.v1.execute", error);
       }
@@ -229,7 +331,7 @@ export function createA2AV1Handler({
   };
   const requestHandler = new DzupRequestHandler(
     agentCard,
-    sanitizeTaskStore(taskStore),
+    safeStore,
     safeExecutor,
     new DefaultExecutionEventBusManager(dzupOwnerResolver),
     undefined,
@@ -238,5 +340,6 @@ export function createA2AV1Handler({
     undefined,
     { validateInputModes: true }
   );
+  requestHandler.recovery = recovery;
   return { handler: new JsonRpcTransportHandler(requestHandler), card: agentCard };
 }

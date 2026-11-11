@@ -1,6 +1,7 @@
 /**
  * Drizzle ORM schema — agent-to-agent (A2A) protocol tables.
  */
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   varchar,
@@ -9,6 +10,7 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
 
@@ -98,5 +100,39 @@ export const a2aV1Tasks = pgTable(
     index("a2a_v1_tasks_scope_status_idx").on(
       table.tenantId, table.ownerKey, table.statusTimestamp.desc(), table.id.desc()
     ),
+    // M3a (migration 0022): the same ordering with NULLS LAST, matching the list query.
+    index("a2a_v1_tasks_scope_status_nl_idx").on(
+      table.tenantId, table.ownerKey, sql`${table.statusTimestamp} desc nulls last`, table.id.desc()
+    ),
+  ]
+);
+
+/**
+ * A2A v1 operation ledger (M3a). One row per executor invocation of a task:
+ * `generation` counts invocations, `operation_key` is the Worker-visible dedupe key.
+ */
+export const a2aV1Operations = pgTable(
+  "a2a_v1_operations",
+  {
+    tenantId: text("tenant_id").notNull(),
+    ownerKey: text("owner_key").notNull(),
+    taskId: text("task_id").notNull(),
+    generation: integer("generation").notNull(),
+    operationKey: text("operation_key").notNull(),
+    messageId: text("message_id").notNull(),
+    bootId: text("boot_id").notNull(),
+    state: varchar("state", { length: 16 }).notNull().default("started"),
+    recoveryState: varchar("recovery_state", { length: 24 }),
+    claimKind: varchar("claim_kind", { length: 8 }),
+    claimToken: text("claim_token"),
+    recoveryReceipt: text("recovery_receipt"),
+    recoveryUpdatedAt: timestamp("recovery_updated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.tenantId, table.ownerKey, table.taskId, table.generation] }),
+    uniqueIndex("a2a_v1_operations_key_uidx").on(table.operationKey),
+    uniqueIndex("a2a_v1_operations_message_uidx").on(table.tenantId, table.ownerKey, table.taskId, table.messageId),
+    index("a2a_v1_operations_scan_idx").on(table.bootId, table.state, table.recoveryState),
   ]
 );
