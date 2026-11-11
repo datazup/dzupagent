@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Task, TaskState, taskStateToJSON } from "@a2a-js/sdk";
 import type { AgentCard, CancelTaskRequest, GetTaskRequest, SendMessageRequest } from "@a2a-js/sdk";
 import { JsonRpcTaskNotCancelableError } from "@a2a-js/sdk/errors";
@@ -14,8 +15,9 @@ import type { AgentExecutor, ExecutionEventBus, ServerCallContext, TaskStore } f
 import type { Context } from "hono";
 import { logRouteError } from "../../routes/route-error.js";
 import { dzupOwnerResolver } from "./identity.js";
-import type { A2AV1Recovery } from "./operation-store.js";
-import { CANCEL_REFUSED_TEXT, OperationRefusedError, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, shouldProjectRecovery } from "./recovery-port.js";
+import type { A2AV1Recovery, OperationRow } from "./operation-store.js";
+import { CANCEL_REFUSED_TEXT, OperationRefusedError, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, isDispatchOutstanding, shouldProjectRecovery } from "./recovery-port.js";
+import { requestStopSafely, resolveClaimedOperation } from "./recovery-scanner.js";
 
 export type { AgentExecutor, TaskStore } from "@a2a-js/sdk/server";
 
@@ -99,17 +101,82 @@ class DzupRequestHandler extends DefaultRequestHandler {
     }
     const recovery = this.recovery;
     if (recovery) {
-      // M3a: the one cancel guard (cancel propagation is M3b). Runs only after the task is known to exist.
-      let refused: boolean;
+      const taskState = taskStateToJSON(task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED);
+      let operation;
       try {
-        const operation = await recovery.latest(context, task.id);
-        refused = cancelGuardRefuses(operation, taskStateToJSON(task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED), recovery.bootId);
+        operation = await recovery.latest(context, task.id);
       } catch (error) {
         throw logAndSanitize(context, "a2a.v1.recovery", error);
       }
-      if (refused) throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
+      if (recovery.port !== undefined && typeof recovery.claimCancel === "function") {
+        // M3b: with a port the handler-owned cancel flow supersedes the guard, but only while a dispatch can still be outstanding.
+        // INPUT_REQUIRED and AUTH_REQUIRED keep the M2 synthetic cancel (no Worker effect to stop), except behind a held-back cancel.
+        if (operation && isDispatchOutstanding(taskState)) return this.cancelWithPropagation(params, context, task, recovery);
+        if (operation?.state === "cancel_pending" && !isTerminalState(taskState)) throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
+      } else if (cancelGuardRefuses(operation, taskState, recovery.bootId)) {
+        throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
+      }
     }
     return super.cancelTask(params, context);
+  }
+
+  /**
+   * Handler-owned cancel: a durable cancel intent (the claim), the hold-back of the SDK's own CANCELED save, the SDK's cancel path (a live
+   * task's executor is called by the SDK; an orphan has no bus and is not), one optional stop request, then ONE inspect. CANCELED is
+   * written only on a receipted `stopped` or `not_applied`; anything uncertain leaves `recovery_required` and the stored task is returned.
+   */
+  private async cancelWithPropagation(params: CancelTaskRequest, context: ServerCallContext, task: Task, recovery: A2AV1Recovery) {
+    let claimed: OperationRow | undefined;
+    const token = randomUUID();
+    try {
+      claimed = await recovery.claimCancel(context, task.id, token);
+      if (!claimed) {
+        // Nothing claimable: a resolved operation of a still non-terminal task is the M2 path; an unexpired claim by another actor, a
+        // superseded generation or anything else is -32002 (the wire text is the M1 fixed one).
+        const current = await recovery.latest(context, task.id);
+        if (current?.state === "resolved") return super.cancelTask(params, context);
+      }
+    } catch (error) {
+      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    }
+    if (!claimed) throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
+    try {
+      await super.cancelTask(params, context);
+    } catch (error) {
+      // The SDK saves CANCELED itself; the hold-back drops that save and the SDK then raises TaskNotCancelableError (recognised by name or
+      // reason, never instanceof: the server bundle and @a2a-js/sdk/errors each define their own class). Any error other than a missing
+      // task, including a generic one from a rejecting executor, leaves the claim held and the flow continues to the inspect.
+      if (isTaskNotFound(error)) throw error;
+    }
+    try {
+      const now = await super.getTask({ id: task.id, tenant: "" }, context);
+      if (!isTerminalState(taskStateToJSON(now.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED))) {
+        await requestStopSafely(recovery, recovery.port, claimed, recovery.inspectTimeoutMs);
+      }
+      await resolveClaimedOperation(recovery, claimed, token, recovery.port, recovery.inspectTimeoutMs);
+    } catch (error) {
+      throw logAndSanitize(context, "a2a.v1.recovery", error);
+    }
+    // The stored task is the truth (never the SDK's object): CANCELED only on a receipted stop; a task that finished first is -32002.
+    const stored = await this.getTask({ id: task.id, tenant: "" }, context);
+    const storedState = stored.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED;
+    if (storedState === TaskState.TASK_STATE_CANCELED) return stored;
+    if (isTerminalState(taskStateToJSON(storedState))) throw new JsonRpcTaskNotCancelableError({ message: CANCEL_REFUSED_TEXT });
+    return stored;
+  }
+}
+
+const TERMINAL_NAMES = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED"]);
+const isTerminalState = (state: string): boolean => TERMINAL_NAMES.has(state);
+
+/** By name or reason: the SDK's error classes are defined twice (server bundle and @a2a-js/sdk/errors), so instanceof is unreliable. */
+function isTaskNotFound(error: unknown): boolean {
+  try {
+    const e = error as { name?: unknown; toErrorInfo?: () => { reason?: unknown } };
+    const reason = typeof e?.toErrorInfo === "function" ? e.toErrorInfo().reason : undefined;
+    return e?.name === "TaskNotFoundError" || reason === "TASK_NOT_FOUND";
+  } catch {
+    return false;
   }
 }
 
@@ -291,6 +358,10 @@ export function createA2AV1Handler({
   taskStore = new InMemoryTaskStore(dzupOwnerResolver),
   recovery,
 }: A2AV1HandlerConfig): A2AV1Handler {
+  // M3b: cancel propagation needs the store to hold back the SDK's own CANCELED save; a store that cannot report it is refused.
+  if (recovery?.port !== undefined && (taskStore as { cancelHoldBack?: unknown }).cancelHoldBack !== true) {
+    throw new Error("A2A v1 cancel propagation requires a task store constructed with the cancel hold-back");
+  }
   // The SDK turns executor rejections into FAILED task messages. Sanitize before
   // that conversion so a later GetTask cannot disclose the original exception.
   const safeStore = sanitizeTaskStore(taskStore);

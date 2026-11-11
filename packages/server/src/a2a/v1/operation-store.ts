@@ -4,7 +4,7 @@ import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
 import { a2aV1Operations } from '../../persistence/drizzle-schema.js'
 import type { DrizzleStoreDatabase } from '../../persistence/drizzle-store-types.js'
 import { dzupOwnerResolver } from './identity.js'
-import { OperationRefusedError, TERMINAL_TASK_STATES, operationKeyFor, type OperationView } from './recovery-port.js'
+import { OperationRefusedError, RECOVERY_DEFAULTS, TERMINAL_TASK_STATES, operationKeyFor, type A2AExecutionPort, type OperationView } from './recovery-port.js'
 
 /**
  * A2A-M3-RECOVERY-20261111-R1 (admission 972a4583): the operation ledger and the claim predicates.
@@ -28,6 +28,17 @@ export interface A2AV1RecoveryOptions {
   bootId?: string
   /** Server-side diagnostics only: operation names, never ids, scope, payloads or driver text. */
   logger?: (entry: RecoveryLog) => void
+  /**
+   * M3b: the read-only inspect port. With a port the handler-owned cancel flow is active and the scanner takes the port from here.
+   * The handler and the scanner share these timings so they cannot disagree about the claim TTL or the inspect bound.
+   */
+  port?: A2AExecutionPort
+  /** A claim older than this is expired and reclaimable (default 300 000). */
+  claimTtlMs?: number
+  /** Operations younger than this are not scanned (default 60 000). */
+  minAgeMs?: number
+  /** One bounded wait for an inspect or a stop request, clamped to at most claimTtlMs / 4 (default 10 000). */
+  inspectTimeoutMs?: number
 }
 
 export interface ScanTimings {
@@ -63,12 +74,13 @@ function pOrphanDispatch(boot: string, t: ScanTimings): SQL {
 }
 
 function pFinish(t: ScanTimings): SQL {
-  return sql`(${latest()} and ${op('state')} = 'started' and ${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'scan'
+  return sql`(${latest()} and ${op('state')} in ('started', 'cancel_pending') and ${op('recovery_state')} = 'recovering'
+    and ${op('claim_kind')} in ('scan', 'cancel')
     and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)} and ${taskState()} in (${terminalList()}))`
 }
 
 function pClaimScan(t: ScanTimings): SQL {
-  return sql`(${op('recovery_state')} is null or (${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'scan'
+  return sql`(${op('recovery_state')} is null or (${op('recovery_state')} = 'recovering' and ${op('claim_kind')} in ('scan', 'cancel')
     and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)}))`
 }
 
@@ -76,6 +88,20 @@ function pClaimLate(key: string, t: ScanTimings): SQL {
   return sql`(${latest()} and ${op('operation_key')} = ${key}
     and (${op('recovery_state')} in ('attached', 'recovery_required')
       or (${op('recovery_state')} = 'recovering' and ${op('claim_kind')} = 'late' and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)})))`
+}
+
+/** P_ORPHAN_CANCEL: only an EXPIRED claim of a cancel_pending row, in any boot; expiry plus the token CAS is the fence. */
+function pOrphanCancel(t: ScanTimings): SQL {
+  return sql`(${latest()} and ${op('state')} = 'cancel_pending' and ${op('recovery_state')} = 'recovering'
+    and ${op('claim_kind')} in ('scan', 'cancel') and ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)}
+    and (${taskState()} is null or ${taskState()} in ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING')))`
+}
+
+/** P_CLAIM_CANCEL: no boot and no age predicate; only an unexpired claim holds the row. */
+function pClaimCancel(t: ScanTimings): SQL {
+  return sql`(${latest()} and ${op('state')} in ('started', 'cancel_pending')
+    and (${op('recovery_state')} is null or ${op('recovery_state')} <> 'recovering'
+      or ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)}))`
 }
 
 const pToken = (token: string): SQL => sql`(${op('claim_token')} = ${token} and ${op('recovery_state')} = 'recovering')`
@@ -96,6 +122,16 @@ function toRow(raw: unknown): OperationRow | undefined {
 export interface A2AV1RecoveryStore {
   readonly bootId: string
   readonly db: DrizzleStoreDatabase
+  /**
+   * M3b members are optional so any test-local store still compiles (a store without them has no cancel support and every call
+   * takes the scanner's own defaults). `explicit` names the timings the host configured, which a per-call value must not contradict.
+   */
+  readonly port?: A2AExecutionPort
+  readonly claimTtlMs?: number
+  readonly minAgeMs?: number
+  readonly inspectTimeoutMs?: number
+  readonly explicit?: { claimTtlMs?: true; minAgeMs?: true; inspectTimeoutMs?: true }
+  claimCancel?(context: ServerCallContext, taskId: string, token: string): Promise<OperationRow | undefined>
   /**
    * Runs `fn` in one transaction after taking the per-task advisory lock. Every writer of a task's recovery state (begin, claims,
    * finish, record, and the recovery task write together with its operation write) goes through it, so a writer's predicates are
@@ -120,6 +156,11 @@ type TransactionalDatabase = DrizzleStoreDatabase & {
 
 export class A2AV1Recovery implements A2AV1RecoveryStore {
   readonly bootId: string
+  readonly port: A2AExecutionPort | undefined
+  readonly claimTtlMs: number
+  readonly minAgeMs: number
+  readonly inspectTimeoutMs: number
+  readonly explicit: { claimTtlMs?: true; minAgeMs?: true; inspectTimeoutMs?: true }
 
   /** `db` must support `transaction` (a drizzle database over a connection pool); a single shared client would interleave statements. */
   constructor(readonly db: DrizzleStoreDatabase, private readonly opts: A2AV1RecoveryOptions = {}) {
@@ -134,6 +175,20 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
       throw new Error('A2A v1 recovery requires a connection pool, not a single shared client')
     }
     this.bootId = opts.bootId ?? randomUUID()
+    this.port = opts.port
+    for (const name of ['claimTtlMs', 'minAgeMs', 'inspectTimeoutMs'] as const) {
+      const value = opts[name]
+      if (value !== undefined && (!Number.isFinite(value) || value < (name === 'minAgeMs' ? 0 : 1))) throw new Error(`A2A v1 recovery option ${name} is invalid`)
+    }
+    this.claimTtlMs = opts.claimTtlMs ?? RECOVERY_DEFAULTS.claimTtlMs
+    this.minAgeMs = opts.minAgeMs ?? RECOVERY_DEFAULTS.minAgeMs
+    // The cancel flow waits twice in sequence (a stop request, then an inspect) inside one claim.
+    this.inspectTimeoutMs = Math.max(1, Math.min(opts.inspectTimeoutMs ?? RECOVERY_DEFAULTS.inspectTimeoutMs, Math.floor(this.claimTtlMs / 4)))
+    this.explicit = {
+      ...(opts.claimTtlMs !== undefined ? { claimTtlMs: true as const } : {}),
+      ...(opts.minAgeMs !== undefined ? { minAgeMs: true as const } : {}),
+      ...(opts.inspectTimeoutMs !== undefined ? { inspectTimeoutMs: true as const } : {}),
+    }
   }
 
   async atomic<T>(scope: { tenantId: string; ownerKey: string; taskId: string }, fn: (tx: DrizzleStoreDatabase) => Promise<T>): Promise<T> {
@@ -210,7 +265,7 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
 
   async candidates(t: ScanTimings, limit: number): Promise<OperationRow[]> {
     const rows = await this.db.select().from(a2aV1Operations)
-      .where(sql`((${pOrphanDispatch(this.bootId, t)} or ${pFinish(t)}) and ${pClaimScan(t)})`)
+      .where(sql`((${pOrphanDispatch(this.bootId, t)} or ${pOrphanCancel(t)} or ${pFinish(t)}) and ${pClaimScan(t)})`)
       .orderBy(a2aV1Operations.createdAt).limit(limit)
     return rows.flatMap((row) => { const view = toRow(row); return view ? [view] : [] })
   }
@@ -225,9 +280,28 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
     }).where(and(
       eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
       eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation),
-      sql`((${pOrphanDispatch(this.bootId, t)} or ${pFinish(t)}) and ${pClaimScan(t)})`,
+      sql`((${pOrphanDispatch(this.bootId, t)} or ${pOrphanCancel(t)} or ${pFinish(t)}) and ${pClaimScan(t)})`,
     )).returning()
     return toRow(rows[0])
+  }
+
+  /**
+   * P_CLAIM_CANCEL: one statement inside the per-task lock. Stamps the current boot and a fresh token and moves the latest operation to
+   * `cancel_pending`/`recovering`/`cancel`; from here the task store holds back any CANCELED save of the task. Undefined when no row
+   * is claimable (an unexpired claim by anyone, a resolved operation, no operation).
+   */
+  async claimCancel(context: ServerCallContext, taskId: string, token: string): Promise<OperationRow | undefined> {
+    const scope = this.scope(context)
+    const t = { minAgeMs: this.minAgeMs, claimTtlMs: this.claimTtlMs }
+    return this.atomic({ ...scope, taskId }, async (tx) => {
+      const rows = await tx.update(a2aV1Operations).set({
+        state: 'cancel_pending', recoveryState: 'recovering', claimKind: 'cancel', claimToken: token, bootId: this.bootId, recoveryUpdatedAt: sql`now()`,
+      }).where(and(
+        eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey), eq(a2aV1Operations.taskId, taskId),
+        pClaimCancel(t),
+      )).returning()
+      return toRow(rows[0])
+    })
   }
 
   async finish(row: OperationRow, token: string, set: { recoveryState?: string | null; receipt?: string | null; resolve?: boolean }, tx?: DrizzleStoreDatabase): Promise<boolean> {

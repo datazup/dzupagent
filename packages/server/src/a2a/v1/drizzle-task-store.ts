@@ -21,9 +21,15 @@ interface StoreLog {
   operation: 'a2a.v1.store.malformed-row' | 'a2a.v1.store.terminal-write' | 'a2a.v1.store.serialization'
 }
 
-interface StoreOptions {
+export interface StoreOptions {
   /** Server-side diagnostics only. No payload, id, scope, or driver text is logged here. */
   logger?: (entry: StoreLog) => void
+  /**
+   * M3b: hold back a CANCELED save while the task's latest operation is `cancel_pending` (a silent drop, like the M2 terminal fence).
+   * Required when the recovery instance has a port: the handler writes CANCELED itself, only on a receipted stop. Without this option
+   * `save` is the M2 statement byte for byte and never references the operations table.
+   */
+  cancelHoldBack?: true
 }
 
 // The common database surface intentionally omits driver-specific upsert methods.
@@ -32,6 +38,16 @@ interface StoreOptions {
 interface GuardedInsert extends DrizzleMutationResult {
   onConflictDoUpdate(config: { target: unknown; set: unknown; setWhere: SQL }): DrizzleMutationResult
 }
+
+/**
+ * P_HOLDBACK: refuse a CANCELED write while the LATEST operation of the task is `cancel_pending` (a superseded generation never holds
+ * back). Evaluated only when the store was constructed with the hold-back option. Built lazily like the recovery predicates.
+ */
+const heldBack = (): SQL => sql`not (excluded.state = 'TASK_STATE_CANCELED' and exists (
+  select 1 from "a2a_v1_operations" "oh" where "oh"."tenant_id" = ${a2aV1Tasks.tenantId} and "oh"."owner_key" = ${a2aV1Tasks.ownerKey}
+    and "oh"."task_id" = ${a2aV1Tasks.id} and "oh"."state" = 'cancel_pending'
+    and "oh"."generation" = (select max("o2"."generation") from "a2a_v1_operations" "o2"
+      where "o2"."tenant_id" = "oh"."tenant_id" and "o2"."owner_key" = "oh"."owner_key" and "o2"."task_id" = "oh"."task_id")))`
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -80,7 +96,12 @@ function taskJSON(value: unknown): value is Record<string, unknown> {
 
 /** Explicit opt-in SDK TaskStore. The M1 sanitizer must remain the outer wrapper. */
 export class DrizzleA2AV1TaskStore implements TaskStore {
-  constructor(private readonly db: DrizzleStoreDatabase, private readonly opts: StoreOptions = {}) {}
+  /** True only when the store was constructed with the hold-back; `createA2AV1Handler` checks it when recovery has a port. */
+  readonly cancelHoldBack: boolean
+
+  constructor(private readonly db: DrizzleStoreDatabase, private readonly opts: StoreOptions = {}) {
+    this.cancelHoldBack = opts.cancelHoldBack === true
+  }
 
   private log(entry: StoreLog): void {
     try {
@@ -146,7 +167,8 @@ export class DrizzleA2AV1TaskStore implements TaskStore {
       // independent store instances/connections. Identical retries are allowed.
       setWhere: and(
         eq(a2aV1Tasks.tenantId, scope.tenantId), eq(a2aV1Tasks.ownerKey, scope.ownerKey),
-        or(notInArray(a2aV1Tasks.state, TERMINAL), sql`${a2aV1Tasks.task} = excluded.task`)
+        or(notInArray(a2aV1Tasks.state, TERMINAL), sql`${a2aV1Tasks.task} = excluded.task`),
+        ...(this.cancelHoldBack ? [heldBack()] : [])
       )!,
     }).returning({ id: a2aV1Tasks.id })
     if (rows.length === 0) this.log({ level: 'warn', operation: 'a2a.v1.store.terminal-write' })
