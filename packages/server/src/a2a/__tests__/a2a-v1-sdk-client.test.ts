@@ -3,7 +3,7 @@ import { serve, type ServerType } from '@hono/node-server'
 import { request as httpRequest } from 'node:http'
 import { Message, SendMessageRequest, Task, TaskState, TaskStatusUpdateEvent } from '@a2a-js/sdk'
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
-import { AgentEvent, InMemoryTaskStore, ServerCallContext, type AgentExecutor, type ExecutionEventBus, type TaskStore } from '@a2a-js/sdk/server'
+import { AgentEvent, InMemoryTaskStore, ServerCallContext, type AgentExecutionEvent, type AgentExecutor, type ExecutionEventBus, type TaskStore } from '@a2a-js/sdk/server'
 import { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus } from '@dzupagent/core'
 import { ClientSafeError } from "../../routes/route-error.js"
 import { createForgeApp } from '../../app.js'
@@ -927,10 +927,13 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
       let seen = 0
       const executor: AgentExecutor = {
         async execute(context, bus) {
-          bus.on('event', (event: { data?: { status?: { state?: unknown }; history?: unknown[] } }) => {
+          bus.on('event', (event: AgentExecutionEvent) => {
             seen += 1
-            if (event.data?.status) event.data.status.state = TaskState.TASK_STATE_REJECTED
-            if (event.data) event.data.history = []
+            // The SDK listener type is AgentExecutionEvent; narrow on kind so the mutations stay type-correct.
+            if (event.kind === 'task' || event.kind === 'statusUpdate') {
+              if (event.data.status) event.data.status.state = TaskState.TASK_STATE_REJECTED
+            }
+            if (event.kind === 'task') event.data.history = []
             throw new Error('fixture-pin-listener-secret')
           })
           bus.publish(AgentEvent.task(Task.fromJSON({
