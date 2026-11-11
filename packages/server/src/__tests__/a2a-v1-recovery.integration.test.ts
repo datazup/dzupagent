@@ -387,6 +387,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await scan(boot(), port({ [keyB]: running }))
       await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovering', claim_kind='late', claim_token='held', recovery_updated_at = now() WHERE task_id='late-b'`)
       expect(await applyLateResult(boot(), keyB, { state: 'completed', parts: [{ text: 'x' }] })).toBe('busy')
+      await primary.query(`UPDATE a2a_v1_operations SET claim_kind='scan' WHERE task_id='late-b'`)
+      expect(await applyLateResult(boot(), keyB, { state: 'completed', parts: [{ text: 'x' }] })).toBe('refused') // an unexpired scan claim is refused, not busy
       expect(await applyLateResult(boot(), keyB, { state: 'completed', parts: [] } as never)).toBe('refused') // invalid result
     })
   })

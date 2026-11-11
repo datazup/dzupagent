@@ -174,7 +174,8 @@ export async function applyLateResult(
   const claimed = await recovery.claimLate(row, token, timings)
   if (!claimed) {
     const current = await recovery.byKey(operationKey)
-    return current?.recoveryState === 'recovering' ? 'busy' : 'refused'
+    // busy = an unexpired late claim; an unexpired scan claim (or nothing to apply to) is refused.
+    return current?.recoveryState === 'recovering' && current.claimKind === 'late' ? 'busy' : 'refused'
   }
   try {
     const written = await writeTerminal(recovery, claimed, token, TERMINAL_STATE_NAME[result.state], parts)
