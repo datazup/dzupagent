@@ -15,7 +15,7 @@ import { createForgeApp } from '../app.js'
 import { createDrizzleA2AV1TaskStore } from '../a2a/v1/drizzle-task-store.js'
 import { VerifiedA2AUser } from '../a2a/v1/identity.js'
 import { createA2AV1Handler } from '../a2a/v1/request-handler.js'
-import { createA2AV1Recovery, type A2AV1Recovery } from '../a2a/v1/operation-store.js'
+import { A2AV1Recovery, createA2AV1Recovery, type OperationRow, type ScanTimings } from '../a2a/v1/operation-store.js'
 import { applyLateResult, recoverOrphanedA2AV1Tasks } from '../a2a/v1/recovery-scanner.js'
 import { CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, type A2AExecutionPort } from '../a2a/v1/recovery-port.js'
 import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
@@ -346,6 +346,23 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(await applyLateResult(boot(), key, { state: 'completed', parts: [{ text: 'x' }] })).toBe('applied')
       expect(await stored('late-g')).toBeUndefined()
       expect(await op('late-g')).toMatchObject({ state: 'resolved' })
+    })
+
+    it('a generation superseded between the late claim and the task write returns stale, applies nothing and resolves the old generation', async () => {
+      class Interleaving extends A2AV1Recovery {
+        override async claimLate(row: OperationRow, token: string, timings: ScanTimings) {
+          const claimed = await super.claimLate(row, token, timings)
+          await new A2AV1Recovery(this.db, { logger: () => {} }).begin(alice, row.taskId, 'follow-up') // a follow-up arrives in between
+          return claimed
+        }
+      }
+      const key = await seed(boot(), 'late-f')
+      await scan(boot(), port({ [key]: running }))
+      const result = await applyLateResult(new Interleaving(dbOf(primary), { logger: () => {} }), key, { state: 'completed', parts: [{ text: 'x' }] })
+      expect(result).toBe('stale')
+      expect(await stateOf('late-f')).toBe('TASK_STATE_WORKING')
+      expect(await op('late-f', 1)).toMatchObject({ state: 'resolved' })
+      expect(await op('late-f', 2)).toMatchObject({ state: 'started', recoveryState: null })
     })
 
     it('stale, busy and refused results', async () => {
