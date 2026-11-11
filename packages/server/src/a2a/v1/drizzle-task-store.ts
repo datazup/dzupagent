@@ -259,6 +259,10 @@ export function recoveredTaskPayload(
  * The single recovery task writer (M3a). It is the M2 guarded write with two differences: it is update-only (it never inserts a
  * task row) and its WHERE additionally requires the claim fence: the latest operation of the task must carry this claim token in
  * the `recovering` state. First terminal write still wins. Returns whether a row was written.
+ *
+ * Invariant: the caller holds the per-task advisory lock (recovery.atomic). The fence subquery below keeps this statement's snapshot even
+ * if the UPDATE waits on the task-row lock (for example behind the SDK's own save); that is safe only because every writer of the
+ * operations table takes the same advisory lock, so no operation row can change while this transaction is running.
  */
 export async function writeRecoveredTask(
   db: DrizzleStoreDatabase, scope: RecoveryScope, taskId: string, payload: Record<string, unknown>, token: string,

@@ -126,6 +126,13 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
     if (typeof (db as Partial<TransactionalDatabase>).transaction !== 'function') {
       throw new Error('A2A v1 recovery requires a database with transaction support')
     }
+    // A single shared client has `transaction` too, but concurrent transactions would interleave on one connection and advisory
+    // locks are re-entrant within a session: the per-task lock would silently exclude nobody. node-postgres exposes the client as
+    // `$client`; a Pool has `totalCount`, a plain Client does not.
+    const client = (db as { $client?: { totalCount?: unknown } }).$client
+    if (client !== undefined && typeof client.totalCount !== 'number') {
+      throw new Error('A2A v1 recovery requires a connection pool, not a single shared client')
+    }
     this.bootId = opts.bootId ?? randomUUID()
   }
 

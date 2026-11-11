@@ -558,7 +558,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await scan(boot(), port({ [key]: running }))
       const before = await op('window-1')
       const execute = vi.fn(async () => {})
-      const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: new LatePrecheck(dbOf(primary), { logger: () => {} }) })
+      const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: new LatePrecheck(recDb, { logger: () => {} }) })
       await v1.handler.handle({
         jsonrpc: '2.0', id: 'window', method: 'SendMessage',
         params: SendMessageRequest.toJSON(SendMessageRequest.fromJSON({ message: { messageId: 'same-message', taskId: 'window-1', contextId: 'context-fixture', role: 'ROLE_USER', parts: [{ text: 'again', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true } })),
@@ -577,7 +577,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await scan(boot(), port({ [key]: running }))
       const before = await op('window-2')
       const execute = vi.fn(async () => {})
-      const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: new LatePrecheck(dbOf(primary), { logger: () => {} }) })
+      const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: new LatePrecheck(recDb, { logger: () => {} }) })
       const params = SendMessageRequest.toJSON(SendMessageRequest.fromJSON({ message: { messageId: 'same-message', taskId: 'window-2', contextId: 'context-fixture', role: 'ROLE_USER', parts: [{ text: 'again', mediaType: 'text/plain' }] } }))
       const blocking = await v1.handler.handle({ jsonrpc: '2.0', id: 'b', method: 'SendMessage', params }, alice)
       expect(Symbol.asyncIterator in blocking).toBe(false)
@@ -608,7 +608,9 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
 
   describe('F1 per-task serialization of every recovery writer (independent connections)', () => {
     const waiting = async (...events: string[]) => Number((await primary.query(
-      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND wait_event = ANY($1)`, [events]
+      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()
+         AND wait_event_type = 'Lock' AND wait_event = ANY($1)
+         AND (query ILIKE '%a2a_v1_%' OR query ILIKE '%pg_advisory_xact_lock%')`, [events]
     )).rows[0].n)
     const holders: PgClient[] = []
     // A failed assertion must never leave a lock held: the next test's TRUNCATE would wait for it forever.
@@ -695,6 +697,13 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await holder.query('COMMIT')
       await retry
       await claim
+    })
+  })
+
+  describe('F1 recovery requires a connection pool', () => {
+    it('refuses a database over a single shared client (advisory locks are re-entrant within one session) and accepts a pool', () => {
+      expect(() => createA2AV1Recovery(dbOf(primary))).toThrow('requires a connection pool')
+      expect(() => createA2AV1Recovery(recDb)).not.toThrow()
     })
   })
 
