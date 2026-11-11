@@ -347,8 +347,9 @@ function copyRequestContext(request: RequestContext, operationKey?: string): Req
  * failure is logged and replaced by the generic message, not later inside the
  * SDK's background loop.
  */
-function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string, fixedLogs = false): ExecutionEventBus {
-  const failure = (error: unknown): Error => (fixedLogs ? logFixedAndSanitize(context, label) : logAndSanitize(context, label, error));
+function sanitizeEventBus(bus: ExecutionEventBus, context: ServerCallContext | undefined, label: string, fixedLogs = false, taskId?: string): ExecutionEventBus {
+  // taskId: the execute bus runs in the sendMessage chain, outside a later cancel's async scope, so it also consults the in-flight registry.
+  const failure = (error: unknown): Error => (fixedLogs ? logFixedAndSanitize(context, label) : taskId !== undefined ? logTaskScoped(context, taskId, label, error) : logAndSanitize(context, label, error));
   // Host listeners get a detached copy of each event and cannot throw into the SDK's dispatch.
   const guarded = new WeakMap<object, (...args: unknown[]) => void>();
   const guard = (listener: unknown): never => {
@@ -468,9 +469,9 @@ export function createA2AV1Handler({
             throw error;
           }
         }
-        await executor.execute(copyRequestContext(request, began?.operationKey), sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
+        await executor.execute(copyRequestContext(request, began?.operationKey), sanitizeEventBus(bus, request.context, "a2a.v1.execute", false, request.taskId));
       } catch (error) {
-        throw logAndSanitize(request.context, "a2a.v1.execute", error);
+        throw logTaskScoped(request.context, request.taskId, "a2a.v1.execute", error);
       }
     },
     async cancelTask(taskId, bus) {
