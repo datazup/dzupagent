@@ -15,7 +15,8 @@
  * codes and the payload is reduced to allowlisted contract fields.
  *
  * Compatibility: the multi-bucket `rateLimitsByLimitId` map is preferred; when
- * it is absent, null or empty, the single `rateLimits` snapshot is used.
+ * it is absent, null or empty, the single `rateLimits` snapshot is used. A map
+ * entry whose `limitId` differs from its key is ambiguous and is dropped.
  * Windows are identified by their reported `windowDurationMins` (300 is five
  * hours, 10080 seven days), never by their primary/secondary position alone;
  * two windows reporting the same duration are ambiguous and keep no duration.
@@ -168,7 +169,16 @@ function normalizeSnapshot(
 ): ProviderQuotaObservation | null {
   if (!isRecord(value)) return null
   const limitId = value['limitId']
-  const bucketRef = isProviderQuotaRef(limitId) ? limitId : (isProviderQuotaRef(key) ? key : null)
+  let bucketRef: string | null
+  if (key !== null) {
+    // In the bucket map the key is the metered identity; an entry that names a
+    // different bucket, or a key that is not a reference, is ambiguous.
+    if (!isProviderQuotaRef(key)) return null
+    if (limitId !== undefined && limitId !== null && limitId !== key) return null
+    bucketRef = key
+  } else {
+    bucketRef = isProviderQuotaRef(limitId) ? limitId : null
+  }
   const model = value['normalModelSlug']
   const found: ProviderQuotaWindow[] = []
   for (const position of ['primary', 'secondary'] as const) {
@@ -209,17 +219,16 @@ export function normalizeCodexRateLimits(
   const observations: ProviderQuotaObservation[] = []
   const permission = accountPermission(payload)
   const byId = payload['rateLimitsByLimitId']
-  if (isRecord(byId)) {
-    for (const key of Object.keys(byId).sort()) {
+  const keys = isRecord(byId) ? Object.keys(byId).sort() : []
+  if (isRecord(byId) && keys.length > 0) {
+    // Map keys are unique, so no two observations can share a bucket. A map
+    // with entries is authoritative: if none is usable the payload is invalid.
+    for (const key of keys) {
       if (observations.length >= PROVIDER_QUOTA_LIMITS.maxObservationsPerReading) break
       const observation = normalizeSnapshot(key, byId[key], context, permission)
-      if (observation !== null
-        && !observations.some((existing) => existing.bucketRef === observation.bucketRef)) {
-        observations.push(observation)
-      }
+      if (observation !== null) observations.push(observation)
     }
-  }
-  if (observations.length === 0) {
+  } else {
     const single = normalizeSnapshot(null, payload['rateLimits'], context, permission)
     if (single !== null) observations.push(single)
   }

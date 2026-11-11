@@ -361,14 +361,19 @@ export function assessProviderQuotaObservation(
   options: ProviderQuotaAssessmentOptions,
 ): readonly ProviderQuotaWindowAssessment[] {
   const now = Date.parse(options.now);
-  const skew = options.maxClockSkewMs ?? PROVIDER_QUOTA_DEFAULT_MAX_CLOCK_SKEW_MS;
+  const requestedSkew = options.maxClockSkewMs;
+  // An invalid allowance falls back to the default; it can never disable the check.
+  const skew =
+    requestedSkew !== undefined && Number.isFinite(requestedSkew) && requestedSkew >= 0
+      ? requestedSkew
+      : PROVIDER_QUOTA_DEFAULT_MAX_CLOCK_SKEW_MS;
   let observationReason: ProviderQuotaReasonCode | null = null;
   if (
     !isProviderQuotaInstant(options.now) ||
     validateProviderQuotaObservation(observation).length > 0
   ) {
     observationReason = "malformed";
-  } else if (Date.parse(observation.observedAt) > now + Math.max(0, skew)) {
+  } else if (Date.parse(observation.observedAt) > now + skew) {
     observationReason = "future-observation";
   } else if (now >= Date.parse(observation.expiresAt)) {
     observationReason = "stale";

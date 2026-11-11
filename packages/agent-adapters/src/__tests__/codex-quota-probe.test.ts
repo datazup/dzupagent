@@ -130,6 +130,18 @@ describe('Codex quota normalization', () => {
     expect(permissions(reached)).toEqual(['denied', 'allowed'])
   })
 
+  it('keys buckets by the map and drops entries that name another bucket', () => {
+    const conflicting = {
+      ordinaryUsageAllowed: true,
+      rateLimits: snapshot('codex', 0, 0),
+      rateLimitsByLimitId: { codex: snapshot('codex', 100, 100), impostor: snapshot('codex', 0, 0) },
+    }
+    const observations = normalizeCodexRateLimits(conflicting, context)!
+    expect(observations.map((entry) => [entry.bucketRef, entry.windows[0]!.usedPercent])).toEqual([['codex', 100]])
+    expect(normalizeCodexRateLimits({ ...conflicting, rateLimitsByLimitId: { impostor: snapshot('codex', 0, 0) } }, context)).toBeNull()
+    expect(normalizeCodexRateLimits({ rateLimitsByLimitId: { 'bad key': snapshot('bad key', 0, 0) } }, context)).toBeNull()
+  })
+
   it('treats two windows with the same duration as ambiguous', () => {
     const conflicting = {
       ordinaryUsageAllowed: true,

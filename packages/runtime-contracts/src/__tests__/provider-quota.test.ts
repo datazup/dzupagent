@@ -117,6 +117,10 @@ describe("provider quota contract: assessment", () => {
     const ahead = { ...observation, observedAt: "2026-11-11T10:01:00.000Z", expiresAt: "2026-11-11T10:06:00.000Z" };
     expect(assessProviderQuotaObservation(ahead, both)[0]!.state).toBe("available");
     expect(assessProviderQuotaObservation(ahead, { ...both, maxClockSkewMs: 0 })[0]!.reason).toBe("future-observation");
+    const daysAhead = { ...observation, observedAt: "2026-11-14T10:00:00.000Z", expiresAt: "2026-11-14T10:05:00.000Z" };
+    for (const maxClockSkewMs of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(assessProviderQuotaObservation(daysAhead, { ...both, maxClockSkewMs }).map((result) => result.reason)).toEqual(["future-observation", "future-observation"]);
+    }
   });
 
   it("needs re-observation once a reset time has passed", () => {
