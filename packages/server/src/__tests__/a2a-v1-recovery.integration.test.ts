@@ -5,6 +5,7 @@ import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from
 import { serve, type ServerType } from '@hono/node-server'
 import { request as httpRequest } from 'node:http'
 import { readFileSync } from 'node:fs'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import type { Client as PgClient } from 'pg'
 import type * as PgModule from 'pg'
@@ -37,6 +38,10 @@ const gate = requireIntegration({
   reason: tc === undefined ? 'testcontainers is not installed' : 'Docker is unavailable',
 })
 
+interface OpRow {
+  taskId: string; generation: number; operationKey: string; messageId: string; bootId: string; state: string
+  recoveryState: string | null; claimKind: string | null; claimToken: string | null; receipt: string | null; updatedAt: Date | null
+}
 const digest = (char = 'a') => `sha256:${char.repeat(64)}`
 const scope = (tenantId = 'tenant-fixture', ownerId = 'alice-fixture') => new ServerCallContext({
   tenant: tenantId, user: new VerifiedA2AUser({ tenantId, ownerId }), requestedVersion: '1.0',
@@ -99,7 +104,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
     `SELECT task_id AS "taskId", generation, operation_key AS "operationKey", message_id AS "messageId", boot_id AS "bootId", state,
             recovery_state AS "recoveryState", claim_kind AS "claimKind", claim_token AS "claimToken",
             recovery_receipt AS "receipt", recovery_updated_at AS "updatedAt" FROM a2a_v1_operations ORDER BY task_id, generation`
-  )).rows as Array<Record<string, any>>
+  )).rows as OpRow[]
   const op = async (taskId: string, generation = 1) => (await ops()).find((row) => row.taskId === taskId && row.generation === generation)!
   const stored = async (id: string) => tasks().load(id, alice)
   const stateOf = async (id: string) => { const task = await stored(id); return task ? taskStateToJSON(task.status!.state) : undefined }
@@ -285,7 +290,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       const execute = vi.fn(async () => {})
       createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: boot() })
       const keys = [await seed(boot(), 'race-1'), await seed(boot(), 'race-2'), await seed(boot(), 'race-3')]
-      const p = port(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); return notApplied })
+      const p = port(async () => { await sleep(20); return notApplied })
       const [a, b] = await Promise.all([scan(boot(), p), scan(boot(), p)])
       expect(p.inspect).toHaveBeenCalledTimes(3)
       expect([...a, ...b].map((entry) => entry.operationKey).sort()).toEqual([...keys].sort())
@@ -561,7 +566,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await send('first')
       await send('second')
       expect(seen).toHaveLength(2)
-      expect(seen.every((entry) => entry.rowAtExecute)).toBe(true)
+      expect(seen.map((entry) => entry.rowAtExecute)).toEqual([true, true])
       expect(new Set(seen.map((entry) => entry.key)).size).toBe(2)
       expect(seen.map((entry) => entry.key)).not.toContain('a2a:v1:hacked-by-executor')
       const rows = await ops()
@@ -758,7 +763,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         const recovery = boot()
         const runtime = await startHttp(recovery)
         const client = await runtime.clientFor()
-        const p = port(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); return { status: 'running', receiptRef: digest('4') } })
+        const p = port(async () => { await sleep(5); return { status: 'running', receiptRef: digest('4') } })
         void key
         const [cancelResult] = await Promise.allSettled([cancel(client, id), scan(recovery, p)])
         expect(cancelResult.status).toBe('rejected')
