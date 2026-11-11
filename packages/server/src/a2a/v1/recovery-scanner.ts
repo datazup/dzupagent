@@ -130,8 +130,14 @@ export async function recoverOrphanedA2AV1Tasks(
         results.push({ operationKey: claimed.operationKey, outcome: await resolveClaimed(recovery, claimed, token, port, inspectTimeoutMs) })
       } catch {
         recovery.log({ level: 'error', operation: 'a2a.v1.recovery.scan' })
-        // Best effort: give the row back so the next pass (or another boot) retries it; otherwise the claim expires.
-        try { await recovery.release(claimed, token) } catch { /* the claim expires */ }
+        // A failure after the claim (for example an oversized result) must still leave a visible, deterministic end state:
+        // flag the row recovery_required. Only if that write fails too does the claim expire; an expired scan claim is
+        // reclaimable in any boot, so the row is never silently lost.
+        try {
+          if (await recovery.finish(claimed, token, { recoveryState: 'recovery_required' })) {
+            results.push({ operationKey: claimed.operationKey, outcome: 'recovery_required' })
+          }
+        } catch { /* the claim expires */ }
       }
     }
   }

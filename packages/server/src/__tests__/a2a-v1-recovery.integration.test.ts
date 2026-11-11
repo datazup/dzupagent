@@ -207,6 +207,18 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(JSON.stringify(await stored('orphan-1'))).not.toContain('fixture-port-secret')
     })
 
+    it('a failure after the claim (a terminal result that cannot be stored) still ends recovery_required, never silently unflagged', async () => {
+      const key = await seed(boot(), 'big-1')
+      const oversized = { status: 'terminal', receiptRef: digest(), terminal: { state: 'completed', parts: [{ text: 'x'.repeat(1024 * 1024) }] } }
+      expect(await scan(boot(), port({ [key]: oversized }))).toEqual([{ operationKey: key, outcome: 'recovery_required' }])
+      expect(await op('big-1')).toMatchObject({ recoveryState: 'recovery_required', state: 'started' })
+      expect(await stateOf('big-1')).toBe('TASK_STATE_WORKING')
+      // The row is visible (recovery_required) and is not a candidate again.
+      const again = port({})
+      expect(await scan(boot(), again)).toEqual([])
+      expect(again.inspect).not.toHaveBeenCalled()
+    })
+
     it('a timed-out inspect is unknown and the orphan is flagged recovery_required', async () => {
       const key = await seed(boot(), 'slow-1')
       const slow: A2AExecutionPort = { inspect: () => new Promise(() => {}) }
@@ -529,6 +541,25 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(stateBefore).toBe('TASK_STATE_WORKING')
       expect(await op('retry-2')).toEqual(operationBefore)
       expect(operationBefore.recoveryState).toBe('attached')
+    })
+
+    it('a claim landing between the retry pre-check and begin never lets the SDK persist a synthetic FAILED', async () => {
+      class LatePrecheck extends A2AV1Recovery {
+        override async retryUnderRecovery() { return false } // the pre-check ran before the claim committed
+      }
+      const key = await seed(boot(), 'window-1', 'TASK_STATE_WORKING', 'same-message')
+      await scan(boot(), port({ [key]: running }))
+      const before = await op('window-1')
+      const execute = vi.fn(async () => {})
+      const v1 = createA2AV1Handler({ agentCard: card, executor: { execute, async cancelTask() {} }, taskStore: tasks(), recovery: new LatePrecheck(dbOf(primary), { logger: () => {} }) })
+      await v1.handler.handle({
+        jsonrpc: '2.0', id: 'window', method: 'SendMessage',
+        params: SendMessageRequest.toJSON(SendMessageRequest.fromJSON({ message: { messageId: 'same-message', taskId: 'window-1', contextId: 'context-fixture', role: 'ROLE_USER', parts: [{ text: 'again', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true } })),
+      }, alice)
+      await vi.waitFor(async () => { expect(await stateOf('window-1')).toBe('TASK_STATE_WORKING') })
+      expect(execute).not.toHaveBeenCalled()
+      expect(await stateOf('window-1')).toBe('TASK_STATE_WORKING')
+      expect(await op('window-1')).toEqual(before)
     })
 
     it('a concurrent retry and scan race never double-resolves: either the retry or the claim wins', async () => {

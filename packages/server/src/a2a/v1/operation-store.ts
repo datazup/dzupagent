@@ -14,6 +14,11 @@ import { TERMINAL_TASK_STATES, operationKeyFor, type OperationView } from './rec
 
 const GENERIC = 'Internal server error'
 const REFUSED = 'A2A v1 operation refused'
+
+/** `begin` refused: the message already has an operation under recovery. The executor must not be invoked. */
+export class OperationRefusedError extends Error {
+  constructor() { super(REFUSED) }
+}
 const BEGIN_ATTEMPTS = 3
 
 export interface RecoveryLog {
@@ -147,7 +152,7 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
       const kept = toRow(repeated[0])
       if (kept) return { operationKey: kept.operationKey, generation: kept.generation }
       const existing = await this.db.select().from(a2aV1Operations).where(where).limit(1)
-      if (existing.length > 0) throw new Error(REFUSED)
+      if (existing.length > 0) throw new OperationRefusedError()
       const top = await this.db.select({ value: sql`coalesce(max(${a2aV1Operations.generation}), 0)` }).from(a2aV1Operations).where(and(
         eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey), eq(a2aV1Operations.taskId, taskId),
       ))
@@ -162,7 +167,7 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
         if (!isUniqueViolation(error)) throw error
       }
     }
-    throw new Error(REFUSED)
+    throw new OperationRefusedError()
   }
 
   /** True when this messageId already has an operation with a recovery state: a retry of it must be refused before the SDK runs. */

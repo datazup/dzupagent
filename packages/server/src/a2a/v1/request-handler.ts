@@ -6,6 +6,7 @@ import {
   DefaultRequestHandler,
   InMemoryTaskStore,
   JsonRpcTransportHandler,
+  AgentEvent,
   RequestContext,
   ServerCallContext as SdkServerCallContext,
 } from "@a2a-js/sdk/server";
@@ -13,7 +14,7 @@ import type { AgentExecutor, ExecutionEventBus, ServerCallContext, TaskStore } f
 import type { Context } from "hono";
 import { logRouteError } from "../../routes/route-error.js";
 import { dzupOwnerResolver } from "./identity.js";
-import type { A2AV1Recovery } from "./operation-store.js";
+import { OperationRefusedError, type A2AV1Recovery } from "./operation-store.js";
 import { CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, shouldProjectRecovery } from "./recovery-port.js";
 
 export type { AgentExecutor, TaskStore } from "@a2a-js/sdk/server";
@@ -292,12 +293,29 @@ export function createA2AV1Handler({
 }: A2AV1HandlerConfig): A2AV1Handler {
   // The SDK turns executor rejections into FAILED task messages. Sanitize before
   // that conversion so a later GetTask cannot disclose the original exception.
+  const safeStore = sanitizeTaskStore(taskStore);
   const safeExecutor: AgentExecutor = {
     async execute(request, bus) {
       try {
         // M3a: the operation row is committed before the executor runs, so a crash after the call always leaves a key to inspect.
         // A refused begin (a message already under recovery) never invokes the executor.
-        const began = recovery ? await recovery.begin(request.context, request.taskId, request.userMessage.messageId) : undefined;
+        let began: { operationKey: string } | undefined;
+        if (recovery) {
+          try {
+            began = await recovery.begin(request.context, request.taskId, request.userMessage.messageId);
+          } catch (error) {
+            if (error instanceof OperationRefusedError) {
+              // A claim landed after the retry pre-check. An executor rejection would make the SDK persist a synthetic FAILED over a
+              // task whose effect is attached or unproven, so re-publish the stored task unchanged instead; the executor is not invoked.
+              const stored = await safeStore.load(request.taskId, request.context);
+              if (stored) {
+                bus.publish(AgentEvent.task(stored));
+                return;
+              }
+            }
+            throw error;
+          }
+        }
         await executor.execute(copyRequestContext(request, began?.operationKey), sanitizeEventBus(bus, request.context, "a2a.v1.execute"));
       } catch (error) {
         throw logAndSanitize(request.context, "a2a.v1.execute", error);
@@ -313,7 +331,7 @@ export function createA2AV1Handler({
   };
   const requestHandler = new DzupRequestHandler(
     agentCard,
-    sanitizeTaskStore(taskStore),
+    safeStore,
     safeExecutor,
     new DefaultExecutionEventBusManager(dzupOwnerResolver),
     undefined,
