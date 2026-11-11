@@ -26,7 +26,7 @@ describe('wildcard middleware runs for paths with an encoded line terminator (GH
       it(`runs the guard for /api/items${lt}`, async () => {
         const app = new Hono()
         let guardRan = false
-        app.use('/api/*', async (c, next) => {
+        app.use('/api/*', async (c) => {
           guardRan = true
           return c.json({ error: 'UNAUTHORIZED' }, 401)
         })
