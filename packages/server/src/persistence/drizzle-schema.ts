@@ -16,7 +16,7 @@ export {
   runArtifacts,
 } from "./drizzle-schema/runs.js";
 
-export { a2aTasks, a2aTaskMessages } from "./drizzle-schema/a2a.js";
+export { a2aTasks, a2aTaskMessages, a2aV1Tasks } from "./drizzle-schema/a2a.js";
 
 export {
   triggerConfigs,

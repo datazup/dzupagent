@@ -123,7 +123,7 @@ describe('drizzle migration journal (DZUPAGENT-OPS-H-MIGRATION-JOURNAL)', () => 
     expect(fresh).toContain('0019_reflection_scored_flag')
     expect(fresh).toContain('0020_agent_mail_dlq_tenant')
 
-    expect(await appliedTags(0)).toEqual(['0019_reflection_scored_flag', '0020_agent_mail_dlq_tenant'])
+    expect(await appliedTags(0)).toEqual(['0019_reflection_scored_flag', '0020_agent_mail_dlq_tenant', '0021_a2a_v1_tasks'])
     expect(await appliedTags(maxWhen)).toEqual([])
   })
 })

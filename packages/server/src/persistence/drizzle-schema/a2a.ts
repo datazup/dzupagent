@@ -9,6 +9,7 @@ import {
   timestamp,
   jsonb,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // ---------------------------------------------------------------------------
@@ -74,5 +75,28 @@ export const a2aTaskMessages = pgTable(
   (table) => [
     index("a2a_task_messages_task_id_idx").on(table.taskId),
     index("a2a_task_messages_tenant_id_idx").on(table.tenantId),
+  ]
+);
+
+// SDK v1 tasks are deliberately separate from the legacy A2A dialect.
+export const a2aV1Tasks = pgTable(
+  "a2a_v1_tasks",
+  {
+    tenantId: text("tenant_id").notNull(),
+    ownerKey: text("owner_key").notNull(),
+    id: text("id").notNull(),
+    contextId: text("context_id").notNull(),
+    state: varchar("state", { length: 40 }).notNull(),
+    statusTimestamp: timestamp("status_timestamp", { withTimezone: true }),
+    task: jsonb("task").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.tenantId, table.ownerKey, table.id] }),
+    index("a2a_v1_tasks_scope_context_idx").on(table.tenantId, table.ownerKey, table.contextId),
+    index("a2a_v1_tasks_scope_status_idx").on(
+      table.tenantId, table.ownerKey, table.statusTimestamp.desc(), table.id.desc()
+    ),
   ]
 );
