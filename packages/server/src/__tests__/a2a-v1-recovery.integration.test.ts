@@ -388,6 +388,29 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(await op('stale-1')).toMatchObject({ state: 'resolved' })
     })
 
+    it('a stale scanner that resumes while the reclaiming scanner still holds the claim changes neither the task nor the operation row', async () => {
+      const key = await seed(boot(), 'overlap-1')
+      let releaseFirst!: () => void
+      let releaseSecond!: () => void
+      const holdFirst = new Promise<void>((resolve) => { releaseFirst = resolve })
+      const holdSecond = new Promise<void>((resolve) => { releaseSecond = resolve })
+      const first = port(async () => { await holdFirst; return notApplied })
+      const second = port(async () => { await holdSecond; return completed })
+      const firstScan = scan(boot(), first)
+      await vi.waitFor(() => expect(first.inspect).toHaveBeenCalled())
+      await expireClaim('overlap-1')
+      const secondScan = scan(boot(), second)
+      await vi.waitFor(() => expect(second.inspect).toHaveBeenCalled())
+      const held = await op('overlap-1')
+      releaseFirst()
+      expect(await firstScan).toEqual([{ operationKey: key, outcome: 'stale' }])
+      expect(await op('overlap-1')).toMatchObject({ state: 'started', recoveryState: 'recovering', claimToken: held.claimToken })
+      expect(await stateOf('overlap-1')).toBe('TASK_STATE_WORKING')
+      releaseSecond()
+      expect(await secondScan).toEqual([{ operationKey: key, outcome: 'terminal' }])
+      expect(await stateOf('overlap-1')).toBe('TASK_STATE_COMPLETED')
+    })
+
     it('an expired scan claim is reclaimed by a scanner of the same boot', async () => {
       const recovery = boot()
       const key = await seed(boot(), 'same-1')
