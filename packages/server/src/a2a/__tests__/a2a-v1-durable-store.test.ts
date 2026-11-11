@@ -400,6 +400,26 @@ function registerCases(get: () => Harness) {
     expect(await h.store.load(a.id, left)).toEqual(a)
     expect(await h.store.load(b.id, right)).toEqual(b)
   })
+
+  it('G1.15 totalSize counts stored matching rows, including a malformed row the page drops', async () => {
+    // Documented behaviour (A2A-MINORS M2-b): totalSize is the SQL count of stored rows matching the scope and filters.
+    // Counting only decodable rows would require decoding the whole scoped set and undo the SQL bound on list();
+    // a malformed row is an integrity anomaly that is logged, and an honest total of stored rows is the safer number.
+    const h = get()
+    const stamps = ['2026-10-10T10:00:01.000Z', '2026-10-10T10:00:02.000Z', '2026-10-10T10:00:03.000Z']
+    const tasks = ['count-a', 'count-b', 'count-c'].map((id, i) => fixture(id, 'TASK_STATE_WORKING', 'count-context', stamps[i]!))
+    for (const task of tasks) await h.store.save(task, alice)
+    expect(await h.rows()).toHaveLength(3)
+    const params = listing({ contextId: 'count-context', pageSize: 100 })
+    expect((await h.store.list(params, alice)).tasks.map((task) => task.id)).toEqual(['count-c', 'count-b', 'count-a'])
+    h.logs.length = 0
+    await h.corrupt('count-b', { ...Task.toJSON(tasks[1]!) as object, status: { state: 'fixture-malformed-detail' } })
+    const page = await h.store.list(params, alice)
+    expect(page.tasks.map((task) => task.id)).toEqual(['count-c', 'count-a'])
+    expect(page.totalSize).toBe(3)
+    expect(h.logs.filter((entry) => entry.operation === 'a2a.v1.store.malformed-row')).toHaveLength(1)
+  })
+
 }
 // END conformance cases.
 

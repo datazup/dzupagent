@@ -955,4 +955,124 @@ describe('A2A v1 official SDK over composed local HTTP', () => {
       expect(logged(logs, 'a2a.v1.execute')).toBe(true)
     })
   })
+  // A2A-MINORS-USER1-20261111-R1: M1-a (remaining optional fields), M2-c (empty parts) and M2-d (NUL / lone surrogate).
+  describe('A2A minors: optional fields, empty parts and unstorable text are rejected before the SDK or the store', () => {
+    type RpcEnvelope = { result?: unknown; error?: { code: number; message: string; data?: unknown } }
+    const FIXED_PARAMS_TEXT = 'Invalid method parameters'
+    const part = { text: 'hello', mediaType: 'text/plain' }
+    const message = { messageId: 'minors-message', role: 'ROLE_USER', parts: [part] }
+
+    it.each([
+      ['message.referenceTaskIds as a string', { message: { ...message, referenceTaskIds: 'fixture-ref-string' } }, 'fixture-ref-string'],
+      ['message.referenceTaskIds with a non-string entry', { message: { ...message, referenceTaskIds: ['ok', 5151001] } }, '5151001'],
+      ['message.reference_task_ids alias as an object', { message: { ...message, reference_task_ids: { probe: 'fixture-ref-object' } } }, 'fixture-ref-object'],
+      ['message.extensions as a string', { message: { ...message, extensions: 'fixture-ext-string' } }, 'fixture-ext-string'],
+      ['message.extensions with a non-string entry', { message: { ...message, extensions: ['urn:ok', 5151002] } }, '5151002'],
+      ['configuration.return_immediately alias as a string', { message, configuration: { return_immediately: 'fixture-false-string' } }, 'fixture-false-string'],
+      ['configuration.return_immediately alias as a number', { message, configuration: { return_immediately: 5151003 } }, '5151003'],
+      ['part.metadata as an array', { message: { ...message, parts: [{ ...part, metadata: ['fixture-part-meta'] }] } }, 'fixture-part-meta'],
+      ['part.filename as a number', { message: { ...message, parts: [{ ...part, filename: 5151004 }] } }, '5151004'],
+      ['part.media_type alias as a number', { message: { ...message, parts: [{ text: 'hello', media_type: 5151005 }] } }, '5151005'],
+      ['part.raw as a number', { message: { ...message, parts: [{ raw: 5151006, mediaType: 'application/octet-stream' }] } }, '5151006'],
+      ['part.url as a number', { message: { ...message, parts: [{ url: 5151007, mediaType: 'application/pdf' }] } }, '5151007'],
+    ])('M1-a rejects %s with -32602 and fixed text over HTTP', async (_label, params, probe) => {
+      expect(base.length).toBeGreaterThan(0)
+      const execute = vi.spyOn(fake.executor, 'execute')
+      const response = await wire(envelope('SendMessage', params))
+      expect(response.status).toBe(200)
+      const text = await response.text()
+      const body = JSON.parse(text) as RpcEnvelope
+      expect(body.result).toBeUndefined()
+      expect(body.error).toEqual({ code: -32602, message: expect.stringMatching(/^Invalid (method parameters|message part|media type)$/) })
+      expect(text).not.toContain(probe)
+      expect(execute).not.toHaveBeenCalled()
+    })
+
+    it('M1-a still accepts well-typed values for every newly validated field', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const raw = await (await wire(envelope('SendMessage', {
+        message: { ...message, messageId: 'minors-valid', referenceTaskIds: [], reference_task_ids: null, extensions: ['urn:fixture'], parts: [{ ...part, metadata: { ok: true }, filename: 'note.txt', media_type: 'text/plain' }] },
+        configuration: { return_immediately: false },
+      }))).json() as { result?: { task?: { status?: { state?: string } } }; error?: unknown }
+      expect(raw.error).toBeUndefined()
+      expect(raw.result?.task?.status?.state).toBe('TASK_STATE_COMPLETED')
+    })
+
+    it.each([
+      ['an empty message.parts array', { message: { ...message, parts: [] } }],
+      ['a missing message.parts', { message: { messageId: 'minors-no-parts', role: 'ROLE_USER' } }],
+    ])('M2-c rejects %s at the inbound gate with -32602 (A2A 1.0: at least one part)', async (_label, params) => {
+      expect(base.length).toBeGreaterThan(0)
+      const execute = vi.spyOn(fake.executor, 'execute')
+      const body = await (await wire(envelope('SendMessage', params))).json() as RpcEnvelope
+      expect(body.error).toEqual({ code: -32602, message: 'Invalid message' })
+      expect(execute).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['status message', { status: { state: 'TASK_STATE_COMPLETED', message: { messageId: 'empty-status', role: 'ROLE_AGENT', parts: [] } } }],
+      ['history message', { status: { state: 'TASK_STATE_COMPLETED' }, history: [{ messageId: 'empty-history', role: 'ROLE_AGENT', parts: [] }] }],
+      ['artifact', { status: { state: 'TASK_STATE_COMPLETED' }, artifacts: [{ artifactId: 'empty-artifact', parts: [] }] }],
+    ])('M2-c an executor event whose %s has no parts is rejected by the event gate (generic failure, never stored)', async (_label, taskBody) => {
+      expect(base.length).toBeGreaterThan(0)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const executor: AgentExecutor = {
+        async execute(context, bus) {
+          bus.publish(AgentEvent.task(Task.fromJSON({ id: context.taskId, contextId: context.contextId, ...taskBody })))
+        },
+        async cancelTask() {},
+      }
+      const isolated = createForgeApp({
+        runStore: new InMemoryRunStore(), agentStore: new InMemoryAgentStore(),
+        modelRegistry: new ModelRegistry(), eventBus: createEventBus(),
+        auth: { mode: 'api-key', validateKey: async () => ({ id: 'alice', tenantId: 'tenant-1', role: 'admin' }) },
+        a2a: { agentCardConfig: { name: 'minors', description: 'Minors', baseUrl: base, version: '1', agents: [] }, v1: { executor } },
+      })
+      const response = await isolated.request('/a2a', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'A2A-Version': '1.0', Authorization: 'Bearer alice' },
+        body: JSON.stringify(envelope('SendMessage', SendMessageRequest.toJSON(sendParams(false)))),
+      })
+      const text = await response.text()
+      // The SDK turns the rejected event into its FAILED task carrying only the generic message.
+      expect(text).toContain('TASK_STATE_FAILED')
+      expect(text).toContain('Internal server error')
+      expect(text).not.toContain('TASK_STATE_COMPLETED')
+      expect(text).not.toContain('requires at least one part')
+    })
+
+    const NUL = String.fromCharCode(0)
+    const LONE_HIGH = String.fromCharCode(0xd800)
+    const LONE_LOW = String.fromCharCode(0xdc00)
+    it.each([
+      ['a NUL in a text part', 'SendMessage', { message: { ...message, parts: [{ text: `a${NUL}b`, mediaType: 'text/plain' }] } }],
+      ['a lone high surrogate in a text part', 'SendMessage', { message: { ...message, parts: [{ text: `a${LONE_HIGH}b`, mediaType: 'text/plain' }] } }],
+      ['a lone low surrogate in message.contextId', 'SendMessage', { message: { ...message, contextId: `ctx${LONE_LOW}` } }],
+      ['a NUL in a metadata value', 'SendMessage', { message: { ...message, metadata: { note: `x${NUL}y` } } }],
+      ['a lone surrogate in a metadata key', 'SendMessage', { message: { ...message, metadata: { [`k${LONE_HIGH}`]: 1 } } }],
+      ['a NUL in part.filename', 'SendMessage', { message: { ...message, parts: [{ ...part, filename: `f${NUL}` }] } }],
+      ['a NUL in the GetTask id', 'GetTask', { id: `task${NUL}id` }],
+      ['a lone surrogate in the CancelTask id', 'CancelTask', { id: `task${LONE_LOW}` }],
+    ])('M2-d rejects %s with -32602 and fixed text before the SDK or the store', async (_label, method, params) => {
+      expect(base.length).toBeGreaterThan(0)
+      const execute = vi.spyOn(fake.executor, 'execute')
+      const logs = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const response = await wire(JSON.stringify(envelope(method, params)))
+      expect(response.status).toBe(200)
+      const body = JSON.parse(await response.text()) as RpcEnvelope
+      expect(body.result).toBeUndefined()
+      expect(body.error).toEqual({ code: -32602, message: FIXED_PARAMS_TEXT })
+      expect(execute).not.toHaveBeenCalled()
+      expect(logs).not.toHaveBeenCalled()
+    })
+
+    it('M2-d accepts well-formed astral characters (surrogate pairs) and ordinary unicode', async () => {
+      expect(base.length).toBeGreaterThan(0)
+      const raw = await (await wire(envelope('SendMessage', {
+        message: { ...message, messageId: 'minors-unicode', parts: [{ text: 'emoji \u{1F600} caf\u00e9 \u4e2d', mediaType: 'text/plain' }], metadata: { 'k\u{1F600}': 'v\u00e9' } },
+      }))).json() as { result?: unknown; error?: unknown }
+      expect(raw.error).toBeUndefined()
+      expect(raw.result).toBeDefined()
+    })
+  })
+
 })
