@@ -307,8 +307,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       const big = { state: 'completed' as const, parts: [{ text: 'z'.repeat(1024 * 1024) }] }
       expect(await applyLateResult(recovery, key, big)).toBe('recorded')
       const row = await op('late-1')
-      expect(row.receipt.length).toBeLessThan(4096)
-      expect(JSON.parse(row.receipt)).toEqual({ digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), state: 'completed', byteLength: 1024 * 1024 })
+      expect(row.receipt!.length).toBeLessThan(4096)
+      expect(JSON.parse(row.receipt!)).toEqual({ digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), state: 'completed', byteLength: 1024 * 1024 })
       expect(row.receipt).not.toContain('zzzz')
       expect(await stateOf('late-1')).toBe('TASK_STATE_FAILED')
       const receipt = row.receipt
