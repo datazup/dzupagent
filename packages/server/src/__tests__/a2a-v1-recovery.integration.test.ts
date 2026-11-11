@@ -830,7 +830,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   })
 
   /** HTTP runtime with the official SDK client; `bootRecovery` is the process boot of this runtime. */
-  async function startHttp(recovery: A2AV1Recovery, store: ReturnType<typeof tasks> = tasks(), extra: { cancelRejects?: boolean } = {}) {
+  async function startHttp(recovery: A2AV1Recovery, store: ReturnType<typeof tasks> = tasks(), extra: { cancelRejects?: boolean; cancelCompletes?: boolean } = {}) {
     const executed: string[] = []
     const canceled: string[] = []
     const gates = new Map<string, () => void>()
@@ -846,6 +846,11 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       async cancelTask(taskId, bus) {
         canceled.push(taskId)
         if (extra.cancelRejects) throw new Error('fixture-executor-cancel-rejects')
+        if (extra.cancelCompletes) {
+          bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId, contextId: 'context-fixture', status: { state: 'TASK_STATE_COMPLETED', timestamp: '2026-10-10T12:00:00Z' } })))
+          gates.get(taskId)?.()
+          return
+        }
         bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId, contextId: 'context-fixture', status: { state: 'TASK_STATE_CANCELED', timestamp: '2026-10-10T12:00:00Z' } })))
         gates.get(taskId)?.()
       },
@@ -1108,7 +1113,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
     it('C0 an orphaned and a live task both raise TaskNotCancelableError after the dropped save; it is recognised by name and reason and instanceof against @a2a-js/sdk/errors fails', async () => {
       const handler = new DefaultRequestHandler(card, dropping(tasks()), spikeExecutor, new DefaultExecutionEventBusManager(dzupOwnerResolver))
       await tasks().save(fixture('c0-orphan', 'TASK_STATE_WORKING'), alice)
-      const orphan = await handler.cancelTask({ id: 'c0-orphan', tenant: '' }, alice).then(() => undefined, (error: unknown) => error)
+      const orphan = await handler.cancelTask({ id: 'c0-orphan', tenant: '', metadata: undefined }, alice).then(() => undefined, (error: unknown) => error)
       expect(orphan).toBeDefined()
       expect(reasonOf(orphan)).toEqual({ name: 'TaskNotCancelableError', reason: 'TASK_NOT_CANCELABLE' })
       expect(orphan instanceof JsonRpcTaskNotCancelableError).toBe(false)
@@ -1118,7 +1123,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         message: { messageId: 'c0-live', role: 'ROLE_USER', parts: [{ text: 'go', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true },
       }), alice)
       const liveId = (sent as Task).id
-      const live = await handler.cancelTask({ id: liveId, tenant: '' }, alice).then(() => undefined, (error: unknown) => error)
+      const live = await handler.cancelTask({ id: liveId, tenant: '', metadata: undefined }, alice).then(() => undefined, (error: unknown) => error)
       expect(reasonOf(live)).toEqual({ name: 'TaskNotCancelableError', reason: 'TASK_NOT_CANCELABLE' })
       expect(await stateOf(liveId)).toBe('TASK_STATE_WORKING')
     })
@@ -1129,7 +1134,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         message: { messageId: 'c0b-live', role: 'ROLE_USER', parts: [{ text: 'go', mediaType: 'text/plain' }] }, configuration: { returnImmediately: true },
       }), alice)
       const id = (sent as Task).id
-      await handler.cancelTask({ id, tenant: '' }, alice).catch(() => undefined)
+      await handler.cancelTask({ id, tenant: '', metadata: undefined }, alice).catch(() => undefined)
       const after = await stateOf(id)
       // Observation only: the held-back CANCELED never reached the store and the task keeps its non-terminal state.
       expect(after).toBe('TASK_STATE_WORKING')
@@ -1160,13 +1165,13 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
     const canceledState = TaskState.TASK_STATE_CANCELED
     const stopped = { status: 'stopped', receiptRef: digest('5') }
     const runningAnswer = { status: 'running', receiptRef: digest('6') }
-    const cancelPort = (answer: unknown | ((request: { operationKey: string; kind?: string }) => unknown), extra: Partial<A2AExecutionPort> = {}): A2AExecutionPort & { inspect: ReturnType<typeof vi.fn> } => ({
+    const cancelPort = (answer: unknown | ((request: { operationKey: string; kind?: string }) => unknown), extra: Pick<A2AExecutionPort, 'requestStop'> = {}): A2AExecutionPort & { inspect: ReturnType<typeof vi.fn> } => ({
       ...port((request) => (typeof answer === 'function' ? (answer as (r: unknown) => unknown)(request) : answer)), ...extra,
     })
     const holdStore = () => tasks({ cancelHoldBack: true })
 
     /** An orphaned WORKING task left by a dead boot, and a runtime of a new boot that has the port. */
-    async function orphan(answer: unknown, opts: { extra?: Partial<A2AExecutionPort>; recovery?: Partial<A2AV1RecoveryOptions>; text?: string } = {}) {
+    async function orphan(answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; text?: string } = {}) {
       const { id, key } = await orphanFromRestart(opts.text ?? 'working')
       const p = cancelPort(answer, opts.extra)
       const recovery = boot({ port: p, ...(opts.recovery ?? {}) })
@@ -1297,6 +1302,20 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='cancel', claim_token='dead', recovery_updated_at = now() - interval '1 hour' WHERE operation_key=$1`, [key])
       expect(await recoverOrphanedA2AV1Tasks(recovery, undefined, { minAgeMs: 0 })).toEqual([{ operationKey: key, outcome: 'canceled' }])
       expect(requestStop).not.toHaveBeenCalled()
+    })
+
+    it('C4 requestStop is skipped when the task became terminal between the claim and the SDK call (a live executor completes while cancelling): the cancel returns -32002, the operation resolves and nothing is inspected', async () => {
+      const requestStop = vi.fn(async () => {})
+      const p = cancelPort(stopped, { requestStop })
+      const runtime = await startHttp(boot({ port: p }), holdStore(), { cancelCompletes: true })
+      const client = await runtime.clientFor()
+      const sent = await client.sendMessage(send('working'))
+      if (!('id' in sent)) throw new Error('expected task')
+      await expect(client.cancelTask({ id: sent.id, tenant: '', metadata: undefined })).rejects.toMatchObject({ envelopeCode: -32002 })
+      expect(requestStop).not.toHaveBeenCalled()
+      expect(p.inspect).not.toHaveBeenCalled()
+      expect(await stateOf(sent.id)).toBe('TASK_STATE_COMPLETED')
+      expect(await op(sent.id)).toMatchObject({ state: 'resolved' })
     })
 
     it('C5 re-cancel: from recovery_required a second CancelTask re-runs the claim and the inspect and succeeds on a later stopped; an attached task is cancellable', async () => {
@@ -1456,21 +1475,29 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       release()
       expect(await pending).toMatchObject({ error: { envelopeCode: -32002 } })
       expect(await stateOf(o.id)).toBe('TASK_STATE_COMPLETED')
-      // Stale token: a scanner reclaims the expired cancel claim while the handler is still inspecting.
-      await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
-      let release2!: () => void
-      const hold2 = new Promise<void>((resolve) => { release2 = resolve })
-      const s = await orphan(async () => { await hold2; return stopped })
-      const second = s.client.cancelTask({ id: s.id, tenant: '', metadata: undefined })
+    })
+
+    it('C7 a stale cancel claim cannot write: a scanner reclaims the expired claim while the handler is still inspecting; the handler writes nothing, does not resolve the row and returns the stored task, and the scanner then owns the row', async () => {
+      let releaseHandler!: () => void
+      const holdHandler = new Promise<void>((resolve) => { releaseHandler = resolve })
+      const s = await orphan(async () => { await holdHandler; return stopped })
+      const handlerCall = s.client.cancelTask({ id: s.id, tenant: '', metadata: undefined })
       await vi.waitFor(() => expect(s.p.inspect).toHaveBeenCalled(), { timeout: 15_000, interval: 25 })
-      await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '1 hour' WHERE task_id=$1`, [s.id])
-      const scanner = boot({ port: cancelPort({ status: 'running', receiptRef: digest('a') }) })
-      await recoverOrphanedA2AV1Tasks(scanner, undefined, { minAgeMs: 0 })
-      expect(await op(s.id)).toMatchObject({ recoveryState: 'recovery_required', claimToken: expect.not.stringMatching(/^$/u) })
-      release2()
-      const returned = await second
+      await expireClaim(s.id)
+      let releaseScanner!: () => void
+      const holdScanner = new Promise<void>((resolve) => { releaseScanner = resolve })
+      const scannerPort = port(async () => { await holdScanner; return { status: 'terminal', receiptRef: digest('a'), terminal: { state: 'failed' } } })
+      const scanning = recoverOrphanedA2AV1Tasks(boot({ port: scannerPort }), undefined, { minAgeMs: 0 })
+      await vi.waitFor(() => expect(scannerPort.inspect).toHaveBeenCalled(), { timeout: 15_000, interval: 25 })
+      expect(await op(s.id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovering', claimKind: 'scan' })
+      releaseHandler()
+      const returned = await handlerCall
       expect(returned.status!.state).toBe(TaskState.TASK_STATE_WORKING) // the stale handler wrote nothing and returned the stored task
       expect(await stateOf(s.id)).toBe('TASK_STATE_WORKING')
+      expect(await op(s.id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovering', claimKind: 'scan' }) // not resolved by the stale handler
+      releaseScanner()
+      expect(await scanning).toEqual([{ operationKey: s.key, outcome: 'terminal' }])
+      expect(await stateOf(s.id)).toBe('TASK_STATE_FAILED')
     })
 
     it('C7 applyLateResult on a cancel-resolved row is refused (the receipt is stored: first record wins)', async () => {
@@ -1548,6 +1575,14 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       await expect(recoverOrphanedA2AV1Tasks(boot({ minAgeMs: 5_000 }), undefined, { minAgeMs: 1 })).rejects.toThrow(/minAgeMs/u)
       // An instance without a port accepts a passed port (every M3a call keeps working).
       await expect(recoverOrphanedA2AV1Tasks(boot(), cancelPort(stopped), { minAgeMs: 0 })).resolves.toEqual([])
+      // The cancel claim and the scanner use the INSTANCE's TTL (one source of truth): a 5 s old claim is expired under 1 s, held under 300 s.
+      const short = boot({ port: cancelPort(stopped), claimTtlMs: 1_000 })
+      await seed(boot(), 'c12-ttl')
+      await primary.query(`UPDATE a2a_v1_operations SET state='cancel_pending', recovery_state='recovering', claim_kind='cancel', claim_token='old', boot_id='dead', recovery_updated_at = now() - interval '5 seconds' WHERE task_id='c12-ttl'`)
+      expect(await boot({ port: cancelPort(stopped) }).claimCancel(alice, 'c12-ttl', 'tok-default')).toBeUndefined()
+      expect(await short.claimCancel(alice, 'c12-ttl', 'tok-short')).toBeDefined()
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '5 seconds' WHERE task_id='c12-ttl'`)
+      expect(await recoverOrphanedA2AV1Tasks(short, undefined, { minAgeMs: 0 })).toEqual([{ operationKey: (await op('c12-ttl')).operationKey, outcome: 'canceled' }])
     })
 
     it('C13 new behaviours: without a port a leftover cancel_pending row makes CancelTask return -32002 (the widened guard); after each cancel resolution the receipt is stored, recovery_state is null and the operation is resolved', async () => {
