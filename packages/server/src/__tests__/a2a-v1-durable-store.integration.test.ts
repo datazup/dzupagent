@@ -296,6 +296,26 @@ function registerCases(get: () => Harness) {
     expect(await h.store.load(a.id, left)).toEqual(a)
     expect(await h.store.load(b.id, right)).toEqual(b)
   })
+
+  it('G1.15 totalSize counts stored matching rows, including a malformed row the page drops', async () => {
+    // Documented behaviour (A2A-MINORS M2-b): totalSize is the SQL count of stored rows matching the scope and filters.
+    // Counting only decodable rows would require decoding the whole scoped set and undo the SQL bound on list();
+    // a malformed row is an integrity anomaly that is logged, and an honest total of stored rows is the safer number.
+    const h = get()
+    const stamps = ['2026-10-10T10:00:01.000Z', '2026-10-10T10:00:02.000Z', '2026-10-10T10:00:03.000Z']
+    const tasks = ['count-a', 'count-b', 'count-c'].map((id, i) => fixture(id, 'TASK_STATE_WORKING', 'count-context', stamps[i]!))
+    for (const task of tasks) await h.store.save(task, alice)
+    expect(await h.rows()).toHaveLength(3)
+    const params = listing({ contextId: 'count-context', pageSize: 100 })
+    expect((await h.store.list(params, alice)).tasks.map((task) => task.id)).toEqual(['count-c', 'count-b', 'count-a'])
+    h.logs.length = 0
+    await h.corrupt('count-b', { ...Task.toJSON(tasks[1]!) as object, status: { state: 'fixture-malformed-detail' } })
+    const page = await h.store.list(params, alice)
+    expect(page.tasks.map((task) => task.id)).toEqual(['count-c', 'count-a'])
+    expect(page.totalSize).toBe(3)
+    expect(h.logs.filter((entry) => entry.operation === 'a2a.v1.store.malformed-row')).toHaveLength(1)
+  })
+
 }
 // END conformance cases.
 
@@ -420,7 +440,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
   })
   registerCases(() => harness)
 
-  async function startRuntime(options: { wrapStore?: (store: DrizzleA2AV1TaskStore) => TaskStore } = {}) {
+  async function startRuntime(options: { wrapStore?: (store: DrizzleA2AV1TaskStore) => TaskStore; drainTimeoutMs?: number } = {}) {
     const dbClient = new pg.Client(connection)
     await dbClient.connect()
     let store: DrizzleA2AV1TaskStore | undefined = createDrizzleA2AV1TaskStore(drizzle(dbClient) as unknown as DrizzleStoreDatabase)
@@ -519,7 +539,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
     }
     let closed = false
     const api = {
-      clientFor, executed, canceled, storeFailures, expectedFailures: 0,
+      clientFor, executed, canceled, storeFailures, expectedFailures: 0, dbClient, track,
+      serverListening: () => server.listening,
       release: (id: string) => gates.get(id)!.release(),
       ended: (id: string) => gates.get(id)!.ended,
       close: async () => {
@@ -530,19 +551,29 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
         for (const gate of gates.values()) gate.release()
         await Promise.all([...gates.values()].map((gate) => gate.ended))
         // Drain: wait until no store operation is in flight across two consecutive event-loop turns.
-        const quiet = (async () => {
-          for (let calm = 0; calm < 2;) {
-            if (inflight.size) { await Promise.allSettled([...inflight]); calm = 0 } else {
-              await new Promise<void>((resolve) => setImmediate(resolve))
-              if (!inflight.size) calm += 1
+        // A drain failure is reported only after the server and the DB connection are closed (finally below).
+        let drainFailure: unknown
+        try {
+          const quiet = (async () => {
+            for (let calm = 0; calm < 2;) {
+              if (inflight.size) { await Promise.allSettled([...inflight]); calm = 0 } else {
+                await new Promise<void>((resolve) => setImmediate(resolve))
+                if (!inflight.size) calm += 1
+              }
             }
-          }
-        })()
-        await Promise.race([quiet, drainTimeout(10_000, undefined, { ref: false }).then(() => { throw new Error('Runtime drain timeout') })])
-        await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-        app = undefined
-        store = undefined
-        await dbClient.end()
+          })()
+          await Promise.race([quiet, drainTimeout(options.drainTimeoutMs ?? 10_000, undefined, { ref: false }).then(() => { throw new Error('Runtime drain timeout') })])
+        } catch (error) {
+          drainFailure = error
+        }
+        try {
+          await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+        } finally {
+          app = undefined
+          store = undefined
+          await dbClient.end()
+        }
+        if (drainFailure !== undefined) throw drainFailure
         if (storeFailures.length !== api.expectedFailures) {
           throw new Error(`Unexpected background store failures: ${storeFailures.length} (expected ${api.expectedFailures})`)
         }
@@ -668,6 +699,19 @@ describe.skipIf(gate.shouldSkip)('A2A v1 durable store real Postgres and officia
     expect(await harness.rows()).toHaveLength(1)
   })
   describe('M1 regression with the durable store on real Postgres', () => {
+    it('M2-a close() still closes the server and the DB connection when the drain times out, then reports it', async () => {
+      expect(send().message!.parts.length).toBeGreaterThan(0)
+      runtime = await startRuntime({ drainTimeoutMs: 100 })
+      const open = runtime
+      expect(open.serverListening()).toBe(true)
+      // A store operation that never settles keeps the drain from completing.
+      void open.track(new Promise<never>(() => {})).catch(() => {})
+      await expect(open.close()).rejects.toThrow('Runtime drain timeout')
+      expect(open.serverListening()).toBe(false)
+      await expect(open.dbClient.query('SELECT 1')).rejects.toThrow()
+      runtime = undefined
+    })
+
     const generic = 'Internal server error'
     const persisted = (id: string) => harness.newStore().load(id, alice)
     const stateOf = async (id: string) => (await persisted(id))?.status?.state

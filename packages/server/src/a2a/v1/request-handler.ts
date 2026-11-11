@@ -93,7 +93,9 @@ function assertTextOnlyEvent(kind: string, data: Record<string, unknown>): void 
   if (data.artifact) artifacts.push(data.artifact as PartCarrier);
   carriers.push(...artifacts);
   for (const carrier of carriers) {
-    for (const part of carrier?.parts ?? []) {
+    // A2A 1.0: parts are required, at least one. The store rejects empty parts, so reject them here too.
+    if (!carrier?.parts?.length) throw new Error("A2A v1 requires at least one part")
+    for (const part of carrier.parts) {
       if (part?.content?.$case !== "text") throw new Error("A2A v1 only serves text parts");
     }
   }

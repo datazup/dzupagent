@@ -177,6 +177,9 @@ export class DrizzleA2AV1TaskStore implements TaskStore {
     // Keyset pagination: the page query is bounded by LIMIT pageSize + 1 in SQL, so the scoped set is never
     // materialised. totalSize comes from a separate count over the same scoped, filtered predicate.
     // NULL timestamps sort last (the SDK treats an absent timestamp as "").
+    // totalSize is the count of STORED rows matching the scope and filters. A malformed row that decode() drops from the
+    // page is still counted: counting only decodable rows would need the whole scoped set decoded and would undo the SQL
+    // bound above (pinned by G1.15).
     const counted = await this.db.select({ total: sql`count(*)` }).from(a2aV1Tasks).where(and(...conditions))
     const first = counted[0]
     const totalSize = Number(record(first) ? first.total : Number.NaN)

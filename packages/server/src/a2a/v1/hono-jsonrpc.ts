@@ -34,6 +34,31 @@ function presentValues(record: Record<string, unknown>, ...names: string[]): unk
   return names.map((name) => record[name]).filter((value) => value !== undefined && value !== null);
 }
 
+// A NUL character or a lone UTF-16 surrogate cannot be stored in a Postgres jsonb column (the driver raises
+// an error that would surface as -32603). Reject them at the gate instead.
+const UNSTORABLE_TEXT = /\u0000|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+/** Iterative walk over every string value and object key of a JSON value. */
+function hasUnstorableText(root: unknown): boolean {
+  const stack: unknown[] = [root];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (typeof value === "string") {
+      if (UNSTORABLE_TEXT.test(value)) return true;
+    } else if (Array.isArray(value)) {
+      for (const entry of value) stack.push(entry);
+    } else if (typeof value === "object" && value !== null) {
+      for (const [key, entry] of Object.entries(value)) {
+        if (UNSTORABLE_TEXT.test(key)) return true;
+        stack.push(entry);
+      }
+    }
+  }
+  return false;
+}
+
+const isStringArray = (value: unknown): boolean => Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
 /**
  * Optional fields the SDK would otherwise coerce (String(), Number()) or silently
  * drop. Returns false when any present value has the wrong type.
@@ -42,7 +67,9 @@ function validOptionalSendFields(message: Record<string, unknown>, configuration
   const ids = presentValues(message, "contextId", "context_id", "taskId", "task_id");
   if (!ids.every((value) => typeof value === "string")) return false;
   if (!presentValues(message, "metadata").every(isRecord)) return false;
+  if (!presentValues(message, "referenceTaskIds", "reference_task_ids", "extensions").every(isStringArray)) return false;
   if (!isRecord(configuration)) return true;
+  if (!presentValues(configuration, "return_immediately").every((value) => typeof value === "boolean")) return false;
   const lengths = presentValues(configuration, "historyLength", "history_length");
   if (!lengths.every((value) => Number.isInteger(value) && (value as number) >= 0)) return false;
   return presentValues(configuration, "acceptedOutputModes", "accepted_output_modes")
@@ -91,6 +118,7 @@ export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): 
 
   const params = request.params;
   if (!isRecord(params)) return fail(-32602, "Invalid method parameters");
+  if (hasUnstorableText(params)) return fail(-32602, "Invalid method parameters");
   if (params.tenant !== undefined && params.tenant !== "" && params.tenant !== scope.tenantId) {
     return fail(-32602, "Invalid tenant");
   }
@@ -133,6 +161,11 @@ export async function handleA2AV1JsonRpc(c: Context<AppEnv>, v1: A2AV1Handler): 
       if (!isRecord(part)) return fail(-32602, "Invalid message part");
       if (part.mediaType !== undefined && typeof part.mediaType !== "string") {
         return fail(-32602, "Invalid media type");
+      }
+      // The SDK would String()-coerce or silently drop these optional part fields.
+      if (!presentValues(part, "filename", "media_type").every((value) => typeof value === "string") || !presentValues(part, "metadata").every(isRecord) ||
+          ["raw", "url"].some((key) => Object.hasOwn(part, key) && typeof part[key] !== "string")) {
+        return fail(-32602, "Invalid message part");
       }
       const fields = ["text", "raw", "url", "data"].filter((key) => Object.hasOwn(part, key));
       if (fields.length !== 1 || (Object.hasOwn(part, "text") && typeof part.text !== "string")) {
