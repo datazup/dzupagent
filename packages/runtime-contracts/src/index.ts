@@ -5,6 +5,31 @@
  */
 export { EXECUTION_OFFER_ROUTING_SCHEMA, validateRoutingObservation } from './execution-offer-routing.js';
 export type { RoutingObservation, RoutingCapacity, ExecutionOfferOperations, ExecutionOfferRoutingPolicy, ExecutionTaskAssignment, ExecutionOfferRanking, ExecutionOfferReservationPort, ExecutionOfferReservation, ExecutionOfferHandoff } from './execution-offer-routing.js';
+export {
+  PROVIDER_QUOTA_COLLECTION_METHODS,
+  PROVIDER_QUOTA_DEFAULT_MAX_CLOCK_SKEW_MS,
+  PROVIDER_QUOTA_LIMITS,
+  PROVIDER_QUOTA_REASON_CODES,
+  PROVIDER_QUOTA_SCHEMA,
+  PROVIDER_QUOTA_WINDOW_MINUTES,
+  assessProviderQuotaObservation,
+  assessProviderQuotaReading,
+  isProviderQuotaInstant,
+  isProviderQuotaRef,
+  validateProviderQuotaObservation,
+  validateProviderQuotaReading,
+} from "./provider-quota.js";
+export type {
+  ProviderQuotaAssessmentOptions,
+  ProviderQuotaCollectionMethod,
+  ProviderQuotaObservation,
+  ProviderQuotaReading,
+  ProviderQuotaReadingStatus,
+  ProviderQuotaReasonCode,
+  ProviderQuotaWindow,
+  ProviderQuotaWindowAssessment,
+  ProviderQuotaWindowState,
+} from "./provider-quota.js";
 export type { FeatureBrief, PersonaProfile, PersonaRoleType, WorkItem } from "./planning.js";
 export type { ExecutionRun, ExecutionRunStatus, PromptRecord, PromptType } from "./execution.js";
 export type { Artifact, ArtifactType, BudgetBucket, CostLedgerEntry } from "./ledger.js";

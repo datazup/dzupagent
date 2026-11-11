@@ -68,6 +68,50 @@ export { qualifyCodexNativeAuthMode } from './codex/codex-native-auth-mode.js'
 export type { CodexNativeAuthModeOptions } from './codex/codex-native-auth-mode.js'
 export { createCodexBackendAdapter } from './codex/codex-backend.js'
 export type { CodexBackendConfig } from './codex/codex-backend.js'
+
+// --- Provider quota observation (ADAPTER-QUOTA-OBSERVATION-MVP01) ---
+export {
+  PROVIDER_QUOTA_DEFAULT_OBSERVATION_TTL_MS,
+  providerQuotaReadingFromObservations,
+  providerQuotaUnavailableReading,
+} from './quota/provider-quota-probe.js'
+export type {
+  ProviderQuotaProbe,
+  ProviderQuotaReadRequest,
+} from './quota/provider-quota-probe.js'
+export {
+  InMemoryProviderQuotaObservationStore,
+  recordProviderQuotaReading,
+} from './quota/provider-quota-observation-store.js'
+export type {
+  InMemoryProviderQuotaObservationStoreOptions,
+  ProviderQuotaObservationStore,
+  ProviderQuotaStorePutResult,
+} from './quota/provider-quota-observation-store.js'
+export {
+  CODEX_QUOTA_PROVIDER,
+  CODEX_QUOTA_RPC_METHOD,
+  CODEX_QUOTA_RPC_PARAMS,
+  createCodexQuotaProbe,
+  normalizeCodexRateLimits,
+} from './codex/codex-quota-probe.js'
+export type {
+  CodexQuotaConnectOptions,
+  CodexQuotaProbeOptions,
+  CodexQuotaRpcClient,
+} from './codex/codex-quota-probe.js'
+export {
+  CLAUDE_QUOTA_PROVIDER,
+  CLAUDE_QUOTA_SOURCE,
+  createClaudeQuotaObservationSource,
+  parseClaudeStatusLineRateLimits,
+} from './claude/claude-quota-observation.js'
+export type {
+  ClaudeQuotaIngestOptions,
+  ClaudeQuotaIngestResult,
+  ClaudeQuotaObservationSource,
+  ClaudeQuotaObservationSourceOptions,
+} from './claude/claude-quota-observation.js'
 export { GeminiCLIAdapter } from './gemini/gemini-adapter.js'
 export { GeminiSDKAdapter } from './gemini/gemini-sdk-adapter.js'
 export type { GeminiSDKAdapterConfig } from './gemini/gemini-sdk-adapter.js'
