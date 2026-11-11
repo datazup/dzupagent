@@ -98,7 +98,10 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   const newClient = async () => { const client = new pg.Client(connection); await client.connect(); clients.push(client); return client }
   const dbOf = (client: PgClient) => drizzle(client) as unknown as DrizzleStoreDatabase
   /** A new Recovery instance is a new process boot (new boot_id) over the same database. */
-  const boot = () => createA2AV1Recovery(dbOf(primary), { logger: () => {} })
+  /** Recovery needs transactions: a pool gives every writer its own connection (a shared Client would interleave statements). */
+  let recPool: PgModule.Pool
+  let recDb: DrizzleStoreDatabase
+  const boot = () => createA2AV1Recovery(recDb, { logger: () => {} })
   const tasks = () => createDrizzleA2AV1TaskStore(dbOf(primary), { logger: () => {} })
   const ops = async () => (await primary.query(
     `SELECT task_id AS "taskId", generation, operation_key AS "operationKey", message_id AS "messageId", boot_id AS "bootId", state,
@@ -140,13 +143,15 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
     connection = { host: container.getHost(), port: container.getMappedPort(5432), user: 'test', password: 'test', database: 'testdb' }
     pg = await import('pg')
     primary = await newClient()
+    recPool = new pg.Pool({ ...connection, max: 16 })
+    recDb = dbOf(recPool as unknown as PgClient)
     for (const file of ['0021_a2a_v1_tasks.sql', '0022_a2a_v1_operations.sql']) {
       const migration = readFileSync(new URL(`../../drizzle/${file}`, import.meta.url), 'utf8')
       await primary.query(migration)
       await primary.query(migration) // additive and idempotent
     }
   }, 120_000)
-  afterAll(async () => { for (const client of clients) await client.end().catch(() => {}); await container?.stop() }, 30_000)
+  afterAll(async () => { await recPool?.end().catch(() => {}); for (const client of clients) await client.end().catch(() => {}); await container?.stop() }, 30_000)
   beforeEach(async () => { await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations'); vi.spyOn(console, 'error').mockImplementation(() => {}) })
   afterEach(async () => {
     for (const server of servers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -370,7 +375,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       }
       const key = await seed(boot(), 'late-f')
       await scan(boot(), port({ [key]: running }))
-      const result = await applyLateResult(new Interleaving(dbOf(primary), { logger: () => {} }), key, { state: 'completed', parts: [{ text: 'x' }] })
+      const result = await applyLateResult(new Interleaving(recDb, { logger: () => {} }), key, { state: 'completed', parts: [{ text: 'x' }] })
       expect(result).toBe('stale')
       expect(await stateOf('late-f')).toBe('TASK_STATE_WORKING')
       expect(await op('late-f', 1)).toMatchObject({ state: 'resolved' })
@@ -601,6 +606,115 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
     })
   })
 
+  describe('F1 per-task serialization of every recovery writer (independent connections)', () => {
+    const waiting = async (...events: string[]) => Number((await primary.query(
+      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND wait_event = ANY($1)`, [events]
+    )).rows[0].n)
+    const holders: PgClient[] = []
+    // A failed assertion must never leave a lock held: the next test's TRUNCATE would wait for it forever.
+    afterEach(async () => { for (const holder of holders.splice(0)) await holder.query('ROLLBACK').catch(() => {}) })
+    const until = (check: () => Promise<void> | void) => vi.waitFor(check, { timeout: 15_000, interval: 50 })
+    /** A second connection that holds the task row lock, so a recovery write blocks mid-transaction. */
+    const holdTaskRow = async (taskId: string) => {
+      const holder = await newClient()
+      holders.push(holder)
+      await holder.query('BEGIN')
+      await holder.query('SELECT 1 FROM a2a_v1_tasks WHERE id = $1 FOR UPDATE', [taskId])
+      return async () => { await holder.query('COMMIT') }
+    }
+
+    it('scanner: a replacement claim and a new generation cannot commit while the claim owner is writing; the owner changes the task exactly once', async () => {
+      const key = await seed(boot(), 'ser-1')
+      let releaseInspect!: () => void
+      const inspecting = new Promise<void>((resolve) => { releaseInspect = resolve })
+      const portA = port(async () => { await inspecting; return notApplied })
+      const scanA = scan(boot(), portA)
+      await until(() => expect(portA.inspect).toHaveBeenCalled())
+      const release = await holdTaskRow('ser-1')
+      releaseInspect() // A's commit transaction now takes the per-task lock and blocks on the task row
+      await until(async () => expect(await waiting('tuple', 'transactionid')).toBeGreaterThan(0))
+      await expireClaim('ser-1') // B may legitimately replace A's now-expired claim
+      let replacementSettled = false
+      let generationSettled = false
+      const portB = port({ [key]: completed })
+      const scanB = scan(boot(), portB).then((result) => { replacementSettled = true; return result })
+      const nextGeneration = boot().begin(alice, 'ser-1', 'm2').then((result) => { generationSettled = true; return result })
+      await until(async () => expect(await waiting('advisory')).toBeGreaterThanOrEqual(2)) // both queue behind A's lock
+      expect(replacementSettled).toBe(false)
+      expect(generationSettled).toBe(false)
+      await release()
+      expect(await scanA).toEqual([{ operationKey: key, outcome: 'not_applied' }]) // A still owned the claim when it wrote
+      expect(await scanB).toEqual([]) // B then sees a resolved operation and claims nothing
+      expect(portB.inspect).not.toHaveBeenCalled()
+      expect((await nextGeneration).generation).toBe(2)
+      expect(await stateOf('ser-1')).toBe('TASK_STATE_FAILED')
+      expect(textOf(await stored('ser-1'))).toBe('Task was not started; resubmit')
+    })
+
+    it('late result: a replacement late claim and a new generation cannot commit while the claim owner is writing', async () => {
+      const key = await seed(boot(), 'ser-2')
+      await scan(boot(), port({ [key]: running }))
+      const release = await holdTaskRow('ser-2')
+      const lateA = applyLateResult(boot(), key, { state: 'completed', parts: [{ text: 'from A' }] })
+      await until(async () => expect(await waiting('tuple', 'transactionid')).toBeGreaterThan(0))
+      await expireClaim('ser-2')
+      let replacementSettled = false
+      let generationSettled = false
+      const lateB = applyLateResult(boot(), key, { state: 'failed', parts: [{ text: 'from B' }] }).then((result) => { replacementSettled = true; return result })
+      const nextGeneration = boot().begin(alice, 'ser-2', 'm2').then((result) => { generationSettled = true; return result })
+      await until(async () => expect(await waiting('advisory')).toBeGreaterThanOrEqual(2))
+      expect(replacementSettled).toBe(false)
+      expect(generationSettled).toBe(false)
+      await release()
+      expect(await lateA).toBe('applied')
+      expect(await lateB).toBe('refused') // the row was resolved by A before B's claim could run
+      expect((await nextGeneration).generation).toBe(2)
+      expect(await stateOf('ser-2')).toBe('TASK_STATE_COMPLETED')
+      expect(textOf(await stored('ser-2'))).toBe('from A')
+    })
+
+    it('repeated-messageId re-stamp and the scanner claim are serialized by the same lock', async () => {
+      const writer = boot()
+      await seed(writer, 'ser-3', 'TASK_STATE_WORKING', 'same-message')
+      await age()
+      // Hold the per-task lock from another connection: both the retry and the claim must queue behind it.
+      const holder = await newClient()
+      holders.push(holder)
+      await holder.query('BEGIN')
+      const key = `a2a:v1:recovery:${JSON.stringify(['tenant-fixture', JSON.stringify(['tenant-fixture', 'alice-fixture']), 'ser-3'])}`
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 4121955))', [key])
+      let retrySettled = false
+      let claimSettled = false
+      const other = boot()
+      const retry = other.begin(alice, 'ser-3', 'same-message').then((result) => { retrySettled = true; return result })
+      const claim = recoverOrphanedA2AV1Tasks(other, port({}), { minAgeMs: 0 }).then((result) => { claimSettled = true; return result })
+      await until(async () => expect(await waiting('advisory')).toBeGreaterThanOrEqual(1))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(retrySettled).toBe(false)
+      expect(claimSettled).toBe(false)
+      await holder.query('COMMIT')
+      await retry
+      await claim
+    })
+  })
+
+  describe('F2 every accepted part field and the collection size are bounded before any copy or hash', () => {
+    it.each([
+      ['an oversized mediaType', [{ text: 'x', mediaType: 'm'.repeat(300) }]],
+      ['too many empty parts', Array.from({ length: 1000 }, () => ({ text: '' }))],
+      ['an unknown metadata field', [{ text: 'x', metadata: { big: 'y'.repeat(2000) } }]],
+      ['a filename field', [{ text: 'x', filename: 'f.txt' }]],
+    ])('a record-only late result with %s is refused and records nothing', async (_label, parts) => {
+      const recovery = boot()
+      const key = await seed(recovery, 'bound-1')
+      await scan(boot(), port({ [key]: notApplied })) // a not_applied row takes the record-only branch
+      expect(await applyLateResult(recovery, key, { state: 'completed', parts: parts as never })).toBe('refused')
+      expect((await op('bound-1')).receipt).toBeNull()
+      // The admitted 1 MiB text case still records.
+      expect(await applyLateResult(recovery, key, { state: 'completed', parts: [{ text: 'z'.repeat(1024 * 1024) }] })).toBe('recorded')
+    })
+  })
+
   describe('R2 the recovery modules cannot start work (structural)', () => {
     it('recovery-port, recovery-scanner and operation-store never reference an executor', () => {
       for (const file of ['recovery-port.ts', 'recovery-scanner.ts', 'operation-store.ts']) {
@@ -798,8 +912,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
 
     it('attached, recovery_required and recovering tasks are refused and never become CANCELED', async () => {
       for (const [index, setup] of ([
-        ['attached', async (key: string, recovery: A2AV1Recovery) => { await scan(recovery, port({ [key]: running })) }],
-        ['recovery_required', async (key: string, recovery: A2AV1Recovery) => { await scan(recovery, port({ [key]: { status: 'maybe', receiptRef: digest() } })) }],
+        ['attached', async (key: string, recovery: A2AV1Recovery) => { await recoverOrphanedA2AV1Tasks(recovery, port({ [key]: running })) }], // default minAgeMs: the row was backdated by SQL
+        ['recovery_required', async (key: string, recovery: A2AV1Recovery) => { await recoverOrphanedA2AV1Tasks(recovery, port({ [key]: { status: 'maybe', receiptRef: digest() } })) }],
         ['recovering', async (key: string) => { await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovering', claim_kind='scan', claim_token='held', recovery_updated_at=now() WHERE operation_key=$1`, [key]) }],
       ] as const).entries()) {
         await primary.query('TRUNCATE a2a_v1_tasks, a2a_v1_operations')
@@ -833,7 +947,18 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(runtime.canceled).toEqual([task.id])
     })
 
-    it('a task with no operation row, a missing task, and a not_applied row on the current boot keep the M2 behaviour', async () => {
+    it('a not_applied operation row on the current boot (a real row, task still WORKING) keeps the M2 behaviour through the official client', async () => {
+      const recovery = boot()
+      await seed(recovery, 'na-current')
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_state='not_applied' WHERE task_id='na-current'`)
+      expect(await op('na-current')).toMatchObject({ recoveryState: 'not_applied', state: 'started', bootId: recovery.bootId })
+      expect(await stateOf('na-current')).toBe('TASK_STATE_WORKING')
+      const runtime = await startHttp(recovery)
+      const canceled = await cancel(await runtime.clientFor(), 'na-current')
+      expect(canceled.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+    })
+
+    it('a task with no operation row and a missing task keep the M2 behaviour', async () => {
       const runtime = await startHttp(boot())
       const client = await runtime.clientFor()
       await tasks().save(fixture('no-op-row'), alice)
@@ -851,20 +976,28 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(canceled.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
     })
 
-    it('a guard read racing a scan claim is refused whether it lands before or after the claim commits', async () => {
-      for (let i = 0; i < 5; i += 1) {
-        const { id, key } = await orphanFromRestart()
-        await age()
-        const recovery = boot()
-        const runtime = await startHttp(recovery)
-        const client = await runtime.clientFor()
-        const p = port(async () => { await sleep(5); return { status: 'running', receiptRef: digest('4') } })
-        void key
-        const [cancelResult] = await Promise.allSettled([cancel(client, id), scan(recovery, p)])
-        expect(cancelResult.status).toBe('rejected')
-        expect((cancelResult as PromiseRejectedResult).reason).toMatchObject({ envelopeCode: -32002 })
-        expect(await stateOf(id)).toBe('TASK_STATE_WORKING')
-      }
+    it('the guard refuses deterministically both before the claim (unscanned orphan) and after it (claim held mid-inspect)', async () => {
+      const { id, key } = await orphanFromRestart()
+      await age()
+      const recovery = boot()
+      const runtime = await startHttp(recovery)
+      const client = await runtime.clientFor()
+      // Before the claim: the operation is an unscanned other-boot orphan, clause (b).
+      expect((await op(id)).recoveryState).toBeNull()
+      await expect(cancel(client, id)).rejects.toMatchObject({ envelopeCode: -32002 })
+      // After the claim: the scanner holds the claim (recovering) while inspect is pending, clause (a).
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => { release = resolve })
+      const slow = port(async () => { await hold; return { status: 'running', receiptRef: digest('4') } })
+      const scanning = recoverOrphanedA2AV1Tasks(recovery, slow)
+      await vi.waitFor(() => expect(slow.inspect).toHaveBeenCalled())
+      expect(await op(id)).toMatchObject({ recoveryState: 'recovering', claimKind: 'scan' })
+      await expect(cancel(client, id)).rejects.toMatchObject({ envelopeCode: -32002 })
+      release()
+      expect(await scanning).toEqual([{ operationKey: key, outcome: 'attached' }])
+      await expect(cancel(client, id)).rejects.toMatchObject({ envelopeCode: -32002 })
+      expect(await stateOf(id)).toBe('TASK_STATE_WORKING')
+      expect(runtime.canceled).toEqual([])
     })
   })
 

@@ -15,7 +15,8 @@ import { OperationRefusedError, TERMINAL_TASK_STATES, operationKeyFor, type Oper
 const GENERIC = 'Internal server error'
 
 export { OperationRefusedError }
-const BEGIN_ATTEMPTS = 3
+/** Fixed advisory-lock namespace (the bigint seed of hashtextextended) for every recovery writer of one task. */
+const LOCK_SEED = 4121955
 
 export interface RecoveryLog {
   level: 'error' | 'warn'
@@ -79,11 +80,6 @@ function pClaimLate(key: string, t: ScanTimings): SQL {
 
 const pToken = (token: string): SQL => sql`(${op('claim_token')} = ${token} and ${op('recovery_state')} = 'recovering')`
 
-function isUniqueViolation(error: unknown): boolean {
-  const e = error as { code?: unknown; cause?: { code?: unknown } } | null
-  return e?.code === '23505' || e?.cause?.code === '23505'
-}
-
 function toRow(raw: unknown): OperationRow | undefined {
   const row = raw as Record<string, unknown> | undefined
   if (!row || typeof row.operationKey !== 'string' || typeof row.tenantId !== 'string') return undefined
@@ -100,10 +96,16 @@ function toRow(raw: unknown): OperationRow | undefined {
 export interface A2AV1RecoveryStore {
   readonly bootId: string
   readonly db: DrizzleStoreDatabase
+  /**
+   * Runs `fn` in one transaction after taking the per-task advisory lock. Every writer of a task's recovery state (begin, claims,
+   * finish, record, and the recovery task write together with its operation write) goes through it, so a writer's predicates are
+   * evaluated by statements that start after the lock is held and no claim replacement or generation advance can commit in between.
+   */
+  atomic<T>(scope: { tenantId: string; ownerKey: string; taskId: string }, fn: (tx: DrizzleStoreDatabase) => Promise<T>): Promise<T>
   candidates(timings: ScanTimings, limit: number): Promise<OperationRow[]>
   claimScan(row: OperationRow, token: string, timings: ScanTimings): Promise<OperationRow | undefined>
   /** Compare-and-set under P_TOKEN. Returns whether the row was updated. */
-  finish(row: OperationRow, token: string, set: { recoveryState?: string | null; receipt?: string | null; resolve?: boolean}): Promise<boolean>
+  finish(row: OperationRow, token: string, set: { recoveryState?: string | null; receipt?: string | null; resolve?: boolean }, tx?: DrizzleStoreDatabase): Promise<boolean>
   release(row: OperationRow, token: string): Promise<void>
   byKey(operationKey: string): Promise<OperationRow | undefined>
   isLatest(row: OperationRow): Promise<boolean>
@@ -112,11 +114,28 @@ export interface A2AV1RecoveryStore {
   log(entry: RecoveryLog): void
 }
 
+type TransactionalDatabase = DrizzleStoreDatabase & {
+  transaction<T>(fn: (tx: DrizzleStoreDatabase) => Promise<T>): Promise<T>
+}
+
 export class A2AV1Recovery implements A2AV1RecoveryStore {
   readonly bootId: string
 
+  /** `db` must support `transaction` (a drizzle database over a connection pool); a single shared client would interleave statements. */
   constructor(readonly db: DrizzleStoreDatabase, private readonly opts: A2AV1RecoveryOptions = {}) {
+    if (typeof (db as Partial<TransactionalDatabase>).transaction !== 'function') {
+      throw new Error('A2A v1 recovery requires a database with transaction support')
+    }
     this.bootId = opts.bootId ?? randomUUID()
+  }
+
+  async atomic<T>(scope: { tenantId: string; ownerKey: string; taskId: string }, fn: (tx: DrizzleStoreDatabase) => Promise<T>): Promise<T> {
+    const key = `a2a:v1:recovery:${JSON.stringify([scope.tenantId, scope.ownerKey, scope.taskId])}`
+    return (this.db as TransactionalDatabase).transaction(async (tx) => {
+      // A select without a FROM clause is only a builder and never runs: give it a source so the lock is actually taken.
+      await tx.select({ locked: sql`pg_advisory_xact_lock(hashtextextended(${key}, ${LOCK_SEED}))` }).from(sql`(select 1) as "lk"`)
+      return fn(tx)
+    })
   }
 
   log(entry: RecoveryLog): void {
@@ -144,28 +163,22 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
       eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey),
       eq(a2aV1Operations.taskId, taskId), eq(a2aV1Operations.messageId, messageId),
     )
-    for (let attempt = 0; attempt < BEGIN_ATTEMPTS; attempt += 1) {
-      const repeated = await this.db.update(a2aV1Operations).set({ bootId: this.bootId })
+    // Under the per-task lock no other writer of this task runs, so a plain read-then-insert cannot collide.
+    return this.atomic({ ...scope, taskId }, async (tx) => {
+      const repeated = await tx.update(a2aV1Operations).set({ bootId: this.bootId })
         .where(and(where, isNull(a2aV1Operations.recoveryState), latest())).returning()
       const kept = toRow(repeated[0])
       if (kept) return { operationKey: kept.operationKey, generation: kept.generation }
-      const existing = await this.db.select().from(a2aV1Operations).where(where).limit(1)
+      const existing = await tx.select().from(a2aV1Operations).where(where).limit(1)
       if (existing.length > 0) throw new OperationRefusedError()
-      const top = await this.db.select({ value: sql`coalesce(max(${a2aV1Operations.generation}), 0)` }).from(a2aV1Operations).where(and(
+      const top = await tx.select({ value: sql`coalesce(max(${a2aV1Operations.generation}), 0)` }).from(a2aV1Operations).where(and(
         eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey), eq(a2aV1Operations.taskId, taskId),
       ))
       const generation = Number((top[0] as { value?: unknown } | undefined)?.value ?? 0) + 1
-      try {
-        await this.db.insert(a2aV1Operations).values({
-          ...scope, taskId, generation, operationKey: operationKeyFor(scope.tenantId, scope.ownerKey, taskId, generation),
-          messageId, bootId: this.bootId, state: 'started',
-        }).returning()
-        return { operationKey: operationKeyFor(scope.tenantId, scope.ownerKey, taskId, generation), generation }
-      } catch (error) {
-        if (!isUniqueViolation(error)) throw error
-      }
-    }
-    throw new OperationRefusedError()
+      const operationKey = operationKeyFor(scope.tenantId, scope.ownerKey, taskId, generation)
+      await tx.insert(a2aV1Operations).values({ ...scope, taskId, generation, operationKey, messageId, bootId: this.bootId, state: 'started' }).returning()
+      return { operationKey, generation }
+    })
   }
 
   /** True when this messageId already has an operation with a recovery state: a retry of it must be refused before the SDK runs. */
@@ -196,7 +209,11 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
   }
 
   async claimScan(row: OperationRow, token: string, t: ScanTimings): Promise<OperationRow | undefined> {
-    const rows = await this.db.update(a2aV1Operations).set({
+    return this.atomic(row, async (tx) => this.claimScanIn(tx, row, token, t))
+  }
+
+  private async claimScanIn(tx: DrizzleStoreDatabase, row: OperationRow, token: string, t: ScanTimings): Promise<OperationRow | undefined> {
+    const rows = await tx.update(a2aV1Operations).set({
       recoveryState: 'recovering', claimKind: 'scan', claimToken: token, bootId: this.bootId, recoveryUpdatedAt: sql`now()`,
     }).where(and(
       eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
@@ -206,12 +223,13 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
     return toRow(rows[0])
   }
 
-  async finish(row: OperationRow, token: string, set: { recoveryState?: string | null; receipt?: string | null; resolve?: boolean}): Promise<boolean> {
+  async finish(row: OperationRow, token: string, set: { recoveryState?: string | null; receipt?: string | null; resolve?: boolean }, tx?: DrizzleStoreDatabase): Promise<boolean> {
+    if (!tx) return this.atomic(row, async (locked) => this.finish(row, token, set, locked))
     const values: Record<string, unknown> = { recoveryUpdatedAt: sql`now()` }
     if (set.resolve) values.state = 'resolved'
     if (set.recoveryState !== undefined) values.recoveryState = set.recoveryState
     if (set.receipt !== undefined) values.recoveryReceipt = set.receipt
-    const rows = await this.db.update(a2aV1Operations).set(values).where(and(
+    const rows = await tx.update(a2aV1Operations).set(values).where(and(
       eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
       eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation), pToken(token),
     )).returning({ taskId: a2aV1Operations.taskId })
@@ -219,10 +237,10 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
   }
 
   async release(row: OperationRow, token: string): Promise<void> {
-    await this.db.update(a2aV1Operations).set({ recoveryState: null, claimKind: null, claimToken: null }).where(and(
+    await this.atomic(row, async (tx) => tx.update(a2aV1Operations).set({ recoveryState: null, claimKind: null, claimToken: null }).where(and(
       eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
       eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation), pToken(token),
-    )).returning({ taskId: a2aV1Operations.taskId })
+    )).returning({ taskId: a2aV1Operations.taskId }))
   }
 
   async byKey(operationKey: string): Promise<OperationRow | undefined> {
@@ -238,24 +256,28 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
   }
 
   async claimLate(row: OperationRow, token: string, t: ScanTimings): Promise<OperationRow | undefined> {
-    const rows = await this.db.update(a2aV1Operations).set({
-      recoveryState: 'recovering', claimKind: 'late', claimToken: token, bootId: this.bootId, recoveryUpdatedAt: sql`now()`,
-    }).where(and(
-      eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
-      eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation), pClaimLate(row.operationKey, t),
-    )).returning()
-    return toRow(rows[0])
+    return this.atomic(row, async (tx) => {
+      const rows = await tx.update(a2aV1Operations).set({
+        recoveryState: 'recovering', claimKind: 'late', claimToken: token, bootId: this.bootId, recoveryUpdatedAt: sql`now()`,
+      }).where(and(
+        eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
+        eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation), pClaimLate(row.operationKey, t),
+      )).returning()
+      return toRow(rows[0])
+    })
   }
 
   /** P_RECORD_ONLY: first record wins; later calls are no-ops. */
   async recordOnly(row: OperationRow, receipt: string): Promise<boolean> {
-    const rows = await this.db.update(a2aV1Operations).set({ recoveryReceipt: receipt }).where(and(
-      eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
-      eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation),
-      sql`(${latest()} and ${op('operation_key')} = ${row.operationKey} and ${op('recovery_receipt')} is null
-        and (${op('recovery_state')} = 'not_applied' or ${op('state')} = 'resolved'))`,
-    )).returning({ taskId: a2aV1Operations.taskId })
-    return rows.length > 0
+    return this.atomic(row, async (tx) => {
+      const rows = await tx.update(a2aV1Operations).set({ recoveryReceipt: receipt }).where(and(
+        eq(a2aV1Operations.tenantId, row.tenantId), eq(a2aV1Operations.ownerKey, row.ownerKey),
+        eq(a2aV1Operations.taskId, row.taskId), eq(a2aV1Operations.generation, row.generation),
+        sql`(${latest()} and ${op('operation_key')} = ${row.operationKey} and ${op('recovery_receipt')} is null
+          and (${op('recovery_state')} = 'not_applied' or ${op('state')} = 'resolved'))`,
+      )).returning({ taskId: a2aV1Operations.taskId })
+      return rows.length > 0
+    })
   }
 }
 

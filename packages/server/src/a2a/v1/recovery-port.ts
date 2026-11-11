@@ -16,6 +16,9 @@ export const NOT_STARTED_TEXT = 'Task was not started; resubmit'
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u
 export const MAX_RESULT_BYTES = 1024 * 1024
+/** Bounds applied before any copy, serialization or hashing of a port answer or late result. */
+export const MAX_PARTS = 256
+export const MAX_MEDIA_TYPE_CHARS = 256
 
 export type InspectStatus = 'running' | 'terminal' | 'not_applied'
 export type TerminalOutcome = 'completed' | 'failed' | 'canceled' | 'rejected'
@@ -61,14 +64,17 @@ function record(value: unknown): value is Record<string, unknown> {
 /** Text parts only, at least one, at most MAX_RESULT_BYTES in total. Returns undefined when invalid. */
 export function parseTextParts(value: unknown): TextPart[] | undefined {
   try {
-    if (!Array.isArray(value) || value.length === 0) return undefined
+    if (!Array.isArray(value) || value.length === 0 || value.length > MAX_PARTS) return undefined
     let bytes = 0
     const parts: TextPart[] = []
     for (const entry of value) {
       if (!record(entry) || typeof entry.text !== 'string') return undefined
-      if (['raw', 'url', 'data'].some((key) => Object.hasOwn(entry, key))) return undefined
-      if (entry.mediaType !== undefined && typeof entry.mediaType !== 'string') return undefined
-      bytes += Buffer.byteLength(entry.text, 'utf8')
+      // Only `text` and `mediaType` are accepted: any other field (metadata, filename, raw, url, data, ...) is rejected unread.
+      const keys = Object.keys(entry)
+      if (keys.length > 2 || keys.some((key) => key !== 'text' && key !== 'mediaType')) return undefined
+      if (entry.mediaType !== undefined && (typeof entry.mediaType !== 'string' || entry.mediaType.length > MAX_MEDIA_TYPE_CHARS)) return undefined
+      if (entry.text.length > MAX_RESULT_BYTES) return undefined
+      bytes += Buffer.byteLength(entry.text, 'utf8') + (typeof entry.mediaType === 'string' ? Buffer.byteLength(entry.mediaType, 'utf8') : 0)
       if (bytes > MAX_RESULT_BYTES) return undefined
       parts.push({ text: entry.text, ...(typeof entry.mediaType === 'string' ? { mediaType: entry.mediaType } : {}) })
     }

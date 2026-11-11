@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { loadTaskForRecovery, recoveredTaskPayload, writeRecoveredTask } from './drizzle-task-store.js'
 import type { A2AV1RecoveryStore, OperationRow, ScanTimings } from './operation-store.js'
+import type { DrizzleStoreDatabase } from '../../persistence/drizzle-store-types.js'
 import {
   NOT_STARTED_TEXT, TERMINAL_STATE_NAME, TERMINAL_TASK_STATES, parseInspectAnswer, parseTextParts, receiptRecord,
   type A2AExecutionPort, type InspectAnswer, type TerminalOutcome, type TextPart,
@@ -12,6 +13,9 @@ import {
  */
 
 const GENERIC = 'Internal server error'
+
+/** Raised inside a recovery transaction to roll it back when the claim is no longer ours. */
+class StaleClaim extends Error {}
 const DEFAULTS = { minAgeMs: 60_000, claimTtlMs: 300_000, inspectTimeoutMs: 10_000, batch: 50 }
 
 export interface RecoverOptions {
@@ -54,18 +58,24 @@ async function inspectSafely(port: A2AExecutionPort | undefined, row: OperationR
   }
 }
 
-/** Writes a terminal task status for a claimed row. Returns `written` false when the M2 guard or the claim fence refused it. */
-async function writeTerminal(
-  recovery: A2AV1RecoveryStore, row: OperationRow, token: string, state: string, parts: TextPart[],
-): Promise<'written' | 'already_terminal' | 'fenced' | 'no_task'> {
+type Committed = 'written' | 'already_terminal' | 'fenced' | 'no_task'
+
+/**
+ * Inside the per-task lock (`recovery.atomic`): writes a terminal task status for a claimed row. The recovery writer's fence is
+ * evaluated by a statement that starts after the lock is held, so a claim replacement or a new generation cannot commit between the
+ * check and the write. Returns why nothing was written when the M2 guard or the fence refused it.
+ */
+async function writeTerminalIn(
+  tx: DrizzleStoreDatabase, row: OperationRow, token: string, state: string, parts: TextPart[],
+): Promise<Committed> {
   const scope = { tenantId: row.tenantId, ownerKey: row.ownerKey }
-  const stored = await loadTaskForRecovery(recovery.db, scope, row.taskId)
+  const stored = await loadTaskForRecovery(tx, scope, row.taskId)
   if (!stored) return 'no_task'
   if (isTerminalState(stored.state)) return 'already_terminal'
   const payload = recoveredTaskPayload(stored.task, state, `recovery-${row.operationKey.slice(-12)}`, parts)
-  if (await writeRecoveredTask(recovery.db, scope, row.taskId, payload, token)) return 'written'
+  if (await writeRecoveredTask(tx, scope, row.taskId, payload, token)) return 'written'
   // Refused: either a live completion won in the meantime, or the claim fence failed (stale token, superseded generation).
-  const after = await loadTaskForRecovery(recovery.db, scope, row.taskId)
+  const after = await loadTaskForRecovery(tx, scope, row.taskId)
   return after && isTerminalState(after.state) ? 'already_terminal' : 'fenced'
 }
 
@@ -89,14 +99,21 @@ async function resolveClaimed(
   const terminal = answer.status === 'terminal'
   const state = terminal ? TERMINAL_STATE_NAME[answer.terminal!.state] : 'TASK_STATE_FAILED'
   const parts: TextPart[] = terminal && answer.terminal!.parts ? answer.terminal!.parts : [{ text: terminal ? 'Task finished' : NOT_STARTED_TEXT }]
-  const written = await writeTerminal(recovery, row, token, state, parts)
-  if (written === 'already_terminal' || written === 'fenced') {
-    // A live completion (or a later generation) won: nothing to write; the operation is finished and recovery_state is unchanged.
-    return (await recovery.finish(row, token, { resolve: true })) ? 'superseded' : 'stale'
-  }
-  const done = await recovery.finish(row, token, terminal ? { resolve: true, recoveryState: null } : { resolve: true, recoveryState: 'not_applied' })
-  if (!done) return 'stale'
-  return terminal ? 'terminal' : 'not_applied'
+  // The task write and the operation write are one transaction under the per-task lock.
+  return recovery.atomic(row, async (tx): Promise<RecoveryOutcome> => {
+    const written = await writeTerminalIn(tx, row, token, state, parts)
+    if (written === 'already_terminal' || written === 'fenced') {
+      // A live completion (or a later generation) won: nothing to write; the operation is finished and recovery_state is unchanged.
+      return (await recovery.finish(row, token, { resolve: true }, tx)) ? 'superseded' : 'stale'
+    }
+    const done = await recovery.finish(row, token, terminal ? { resolve: true, recoveryState: null } : { resolve: true, recoveryState: 'not_applied' }, tx)
+    if (!done) throw new StaleClaim()
+    return terminal ? 'terminal' : 'not_applied'
+  }).catch((error: unknown) => {
+    // A stale claim after the write attempt rolls the whole transaction back: neither the task nor the operation changed.
+    if (error instanceof StaleClaim) return 'stale' as const
+    throw error
+  })
 }
 
 /**
@@ -179,18 +196,24 @@ export async function applyLateResult(
     return current?.recoveryState === 'recovering' && current.claimKind === 'late' ? 'busy' : 'refused'
   }
   try {
-    const written = await writeTerminal(recovery, claimed, token, TERMINAL_STATE_NAME[result.state], parts)
-    if (written === 'written' || written === 'no_task') {
-      return (await recovery.finish(claimed, token, { resolve: true, recoveryState: null, receipt: record })) ? 'applied' : 'busy'
-    }
-    if (written === 'fenced') {
-      // The generation was superseded between the claim and the write: nothing may be applied.
-      await recovery.finish(claimed, token, { resolve: true })
-      return 'stale'
-    }
-    // The task is already terminal (a live completion won): nothing to apply; record it and resolve the row.
-    return (await recovery.finish(claimed, token, { resolve: true, recoveryState: null, receipt: record })) ? 'applied_noop' : 'busy'
-  } catch {
+    return await recovery.atomic(claimed, async (tx): Promise<LateOutcome> => {
+      const written = await writeTerminalIn(tx, claimed, token, TERMINAL_STATE_NAME[result.state], parts)
+      if (written === 'written' || written === 'no_task') {
+        if (!(await recovery.finish(claimed, token, { resolve: true, recoveryState: null, receipt: record }, tx))) throw new StaleClaim()
+        return 'applied'
+      }
+      if (written === 'fenced') {
+        // The generation was superseded between the claim and the write: nothing may be applied.
+        await recovery.finish(claimed, token, { resolve: true }, tx)
+        return 'stale'
+      }
+      // The task is already terminal (a live completion won): nothing to apply; record it and resolve the row.
+      if (!(await recovery.finish(claimed, token, { resolve: true, recoveryState: null, receipt: record }, tx))) throw new StaleClaim()
+      return 'applied_noop'
+    })
+  } catch (error) {
+    // The claim was lost while writing: the transaction rolled back, nothing changed.
+    if (error instanceof StaleClaim) return 'busy'
     recovery.log({ level: 'error', operation: 'a2a.v1.recovery.late-result' })
     throw new Error(GENERIC)
   }

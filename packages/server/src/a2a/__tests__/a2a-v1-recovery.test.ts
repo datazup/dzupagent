@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, operationKeyFor, parseInspectAnswer,
+  CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, cancelGuardRefuses, operationKeyFor, parseInspectAnswer, parseTextParts,
   shouldProjectRecovery, type OperationView,
 } from '../v1/recovery-port.js'
 
@@ -52,6 +52,24 @@ describe('A2A M3a recovery: port answers, key format, projection and cancel guar
     ['a string answer', 'running'],
   ])('R1 treats %s as unknown', (_label, raw) => {
     expect(parseInspectAnswer(raw)).toBeUndefined()
+  })
+
+  it.each([
+    ['an oversized mediaType', [{ text: 'x', mediaType: 'm'.repeat(257) }]],
+    ['more than 256 parts', Array.from({ length: 257 }, () => ({ text: '' }))],
+    ['a metadata field', [{ text: 'x', metadata: { a: 1 } }]],
+    ['a filename field', [{ text: 'x', filename: 'f' }]],
+    ['a raw field', [{ text: 'x', raw: 'AAAA' }]],
+    ['a non-string mediaType', [{ text: 'x', mediaType: 5 }]],
+    ['mediaType bytes pushing the total over 1 MiB', [{ text: 'x'.repeat(1024 * 1024), mediaType: 'text/plain' }]],
+  ])('F2 rejects %s before any copy or hash', (_label, parts) => {
+    expect(parseTextParts(parts)).toBeUndefined()
+  })
+
+  it('F2 still accepts exactly 256 parts, a 256-char mediaType and a 1 MiB text', () => {
+    expect(parseTextParts(Array.from({ length: 256 }, () => ({ text: '' })))).toHaveLength(256)
+    expect(parseTextParts([{ text: 'x', mediaType: 'm'.repeat(256) }])).toHaveLength(1)
+    expect(parseTextParts([{ text: 'x'.repeat(1024 * 1024) }])).toHaveLength(1)
   })
 
   it.each([
