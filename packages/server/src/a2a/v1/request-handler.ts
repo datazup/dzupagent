@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { Task, TaskState, taskStateToJSON } from "@a2a-js/sdk";
 import type { AgentCard, CancelTaskRequest, GetTaskRequest, SendMessageRequest } from "@a2a-js/sdk";
@@ -92,6 +93,12 @@ class DzupRequestHandler extends DefaultRequestHandler {
   }
 
   override async cancelTask(params: CancelTaskRequest, context: ServerCallContext) {
+    // M3b round 3: while a cancel is in flight every error reachable from it (task-store load and save wrappers, the SDK cancel, getTask's
+    // projection read, redaction of persisted text, the event bus) is logged only as a fixed payload-free record. See cancelScope.
+    return withCancelInFlight(context, params.id, () => cancelScope.run(true, () => this.cancelTaskScoped(params, context)));
+  }
+
+  private async cancelTaskScoped(params: CancelTaskRequest, context: ServerCallContext) {
     // The SDK makes repeat cancellation idempotent. M1 requires -32002 for
     // every terminal task, including one already canceled. getTask preserves
     // the SDK's owner/tenant check and not-found response before this check.
@@ -199,8 +206,64 @@ function logFixedAndSanitize(context: ServerCallContext | undefined, label: stri
   }
 }
 
-/** Total: a hostile error object (throwing getters, toJSON) must never escape or leak. */
+/**
+ * Explicit scope of a cancel in flight (AsyncLocalStorage). Chosen over a flag threaded through the calls because the SDK owns frames
+ * between our entry point and our wrappers (DefaultRequestHandler.cancelTask calls our sanitized task store and executor wrapper), and a
+ * flag cannot be passed through them; the store follows the async chain of this one cancel call and nothing else, so concurrent requests
+ * and every non-cancel path keep the generic logging byte for byte.
+ */
+const cancelScope = new AsyncLocalStorage<true>();
+
+/**
+ * Cancels in flight, by task. The SDK's own event loop for a live task runs in the async chain of the original sendMessage, not of the cancel
+ * call, and loads and saves the task while the cancel is in flight; the async scope cannot reach it, so the task-store wrappers also consult
+ * this registry (tenant, owner and task id from the context and the task the SDK passes them).
+ */
+const cancelsInFlight = new Map<string, number>();
+function cancelKey(context: ServerCallContext, taskId: string): string {
+  return JSON.stringify([context.tenant, dzupOwnerResolver(context), taskId]);
+}
+function cancelScoped(context: ServerCallContext | undefined, taskId: string | undefined): boolean {
+  if (cancelScope.getStore() === true) return true;
+  if (!context || taskId === undefined) return false;
+  try {
+    return cancelsInFlight.has(cancelKey(context, taskId));
+  } catch {
+    return false;
+  }
+}
+async function withCancelInFlight<T>(context: ServerCallContext, taskId: string, run: () => Promise<T>): Promise<T> {
+  let key: string | undefined;
+  try {
+    key = cancelKey(context, taskId);
+    cancelsInFlight.set(key, (cancelsInFlight.get(key) ?? 0) + 1);
+  } catch {
+    key = undefined;
+  }
+  try {
+    return await run();
+  } finally {
+    if (key !== undefined) {
+      const left = (cancelsInFlight.get(key) ?? 1) - 1;
+      if (left <= 0) cancelsInFlight.delete(key);
+      else cancelsInFlight.set(key, left);
+    }
+  }
+}
+
+/** Inside a cancel (its async scope, or a store call for a task with a cancel in flight): fixed record only. Outside: unchanged. */
+function logTaskScoped(context: ServerCallContext | undefined, taskId: string | undefined, label: string, error: unknown): Error {
+  return cancelScoped(context, taskId) ? logFixedAndSanitize(context, label) : logAndSanitizeGeneric(context, label, error);
+}
+
+/** Inside a cancel: fixed record only. Outside: the original generic logging, unchanged. */
 function logAndSanitize(context: ServerCallContext | undefined, label: string, error: unknown): Error {
+  if (cancelScope.getStore() === true) return logFixedAndSanitize(context, label);
+  return logAndSanitizeGeneric(context, label, error);
+}
+
+/** Total: a hostile error object (throwing getters, toJSON) must never escape or leak. */
+function logAndSanitizeGeneric(context: ServerCallContext | undefined, label: string, error: unknown): Error {
   try {
     const route = context?.state.get("dzup.a2a.route") as Context | undefined;
     const requestInfo = route ?? { req: { method: "POST", path: "/a2a" } as Context["req"] };
@@ -228,7 +291,7 @@ function redactSdkFailureText(task: Task, context: ServerCallContext): void {
       if (content?.$case !== "text") continue;
       const prefix = SDK_FAILURE_PREFIXES.find((p) => content.value.startsWith(p));
       if (prefix !== undefined) {
-        const error = logAndSanitize(context, "a2a.v1.persisted-failure", new Error(content.value));
+        const error = logTaskScoped(context, task.id, "a2a.v1.persisted-failure", new Error(content.value));
         content.value = `${prefix} ${error.message}`;
       }
     }
@@ -349,7 +412,7 @@ function sanitizeTaskStore(store: TaskStore): TaskStore {
         redactSdkFailureText(loaded, context);
         return loaded;
       } catch (error) {
-        throw logAndSanitize(context, "a2a.v1.task-store", error);
+        throw logTaskScoped(context, taskId, "a2a.v1.task-store", error);
       }
     },
     async save(task, context) {
@@ -357,7 +420,7 @@ function sanitizeTaskStore(store: TaskStore): TaskStore {
         redactSdkFailureText(task, context);
         return await store.save(task, context);
       } catch (error) {
-        throw logAndSanitize(context, "a2a.v1.task-store", error);
+        throw logTaskScoped(context, task.id, "a2a.v1.task-store", error);
       }
     },
     async list(params, context) {

@@ -2011,6 +2011,35 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0) // the fixed record is still written
       })
 
+      it('the cancel scope is released when the cancel returns: a later store failure for the same task logs the generic way again', async () => {
+        const o = await orphanR2(stoppedAnswer)
+        expect((await cancelCall(o.client, o.id)).status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+        const wrapped = failingStore(holdStoreR2(), { load: 1 })
+        const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), wrapped.store)
+        vi.mocked(console.error).mockClear()
+        const later = await (await runtime.clientFor()).getTask({ id: o.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
+        expect(wrapped.calls.injected).toBe(true)
+        expect(later).toBeDefined()
+        expect(consoleText()).toContain(probe)
+      })
+
+      it('a cancel in flight for one task does not change the logging for another task', async () => {
+        let releaseInspect!: () => void
+        const hold = new Promise<void>((resolve) => { releaseInspect = resolve })
+        const o = await orphanR2(async () => { await hold; return stoppedAnswer })
+        const other = await orphanFromRestart()
+        const cancelling = cancelCall(o.client, o.id)
+        await until(() => expect(o.p.inspect).toHaveBeenCalled()) // the cancel is in flight
+        const wrapped = failingStore(holdStoreR2(), { load: 1 })
+        const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), wrapped.store)
+        vi.mocked(console.error).mockClear()
+        const error = await (await runtime.clientFor()).getTask({ id: other.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
+        expect(error).toBeDefined()
+        expect(consoleText()).toContain(probe) // another task: generic logging
+        releaseInspect()
+        expect((await cancelling).status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+      })
+
       it('control, outside a cancel: GetTask logs the generic way (the original error text is logged and the wire error stays generic), for a failing latest read and a failing store load', async () => {
         const o = await orphanR2(stoppedAnswer)
         vi.spyOn(o.recovery, 'latest').mockRejectedValue(new Error(probe))
