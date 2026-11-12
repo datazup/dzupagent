@@ -17,7 +17,7 @@ import { createForgeApp } from '../app.js'
 import { createDrizzleA2AV1TaskStore } from '../a2a/v1/drizzle-task-store.js'
 import { VerifiedA2AUser, dzupOwnerResolver } from '../a2a/v1/identity.js'
 import { createA2AV1Handler } from '../a2a/v1/request-handler.js'
-import { A2AV1Recovery, createA2AV1Recovery, type A2AV1RecoveryOptions, type OperationRow, type ScanTimings } from '../a2a/v1/operation-store.js'
+import { A2AV1Recovery, OperationRefusedError, createA2AV1Recovery, type A2AV1RecoveryOptions, type OperationRow, type ScanTimings } from '../a2a/v1/operation-store.js'
 import { applyLateResult, recoverOrphanedA2AV1Tasks } from '../a2a/v1/recovery-scanner.js'
 import { CANCEL_REFUSED_TEXT, RECOVERY_REQUIRED_TEXT, type A2AExecutionPort } from '../a2a/v1/recovery-port.js'
 import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
@@ -836,7 +836,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   })
 
   /** HTTP runtime with the official SDK client; `bootRecovery` is the process boot of this runtime. */
-  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string; executePublishesUnclonableAfterCancel?: boolean } = {}) {
+  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string; executePublishesUnclonableAfterCancel?: boolean; cancelHold?: Promise<void> } = {}) {
     const executed: string[] = []
     const canceled: string[] = []
     const completedPublished: string[] = []
@@ -855,6 +855,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       },
       async cancelTask(taskId, bus) {
         canceled.push(taskId)
+        if (extra.cancelHold) await extra.cancelHold
         if (extra.cancelRejects) throw new Error(extra.cancelRejectsMessage ?? 'fixture-executor-cancel-rejects')
         if (extra.cancelPublishesUnclonable) {
           bus.publish({ kind: 'statusUpdate', data: { taskId, probe: function c8ProbeSecretFn() { return 1 } } } as never)
@@ -1406,6 +1407,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       // A superseded generation does not hold back: generation 2 is the latest and is not cancel_pending.
       await seed(recovery, 'c2-c', 'TASK_STATE_WORKING', 'm1')
       await recovery.claimCancel(alice, 'c2-c', 'tok-c')
+      // A2A-M3B-F1F2-FIX-20261112-R1 (D2.7 amendment): a follow-up supersedes a cancel_pending generation only once its claim expired.
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '1 hour' WHERE task_id='c2-c'`)
       await recovery.begin(alice, 'c2-c', 'm2')
       await guarded.save(fixture('c2-c', 'TASK_STATE_CANCELED'), alice)
       expect(await stateOf('c2-c')).toBe('TASK_STATE_CANCELED')
@@ -1470,7 +1473,11 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         const claim = tracked('cancel', writer.claimCancel(alice, 'c7-race', 'tok-1'))
         const second = tracked('cancel2', boot({ port: cancelPort(stopped) }).claimCancel(alice, 'c7-race', 'tok-2'))
         const scan = tracked('scan', recoverOrphanedA2AV1Tasks(boot({ port: cancelPort(stopped) }), undefined, { minAgeMs: 0 }))
-        const next = tracked('begin', boot().begin(alice, 'c7-race', 'm2'))
+        // A2A-M3B-F1F2-FIX-20261112-R1: a follow-up serialised after the cancel claim is refused while that claim is unexpired.
+        const next = tracked('begin', boot().begin(alice, 'c7-race', 'm2').catch((error: unknown) => {
+          if (error instanceof OperationRefusedError) return 'refused'
+          throw error
+        }))
         await vi.waitFor(async () => expect(Number((await primary.query(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event = 'advisory'`)).rows[0].n)).toBeGreaterThanOrEqual(3), { timeout: 15_000, interval: 50 })
         expect(settled).toEqual([])
         await holder.query('COMMIT')
@@ -1615,6 +1622,64 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         const given = answer as { status: string; receiptRef: string; terminal?: { state: string } }
         expect(JSON.parse((await op(o.id)).receipt!), String(index)).toEqual({ digest: given.receiptRef, state: given.terminal?.state ?? given.status, byteLength: 0 })
       }
+    })
+
+    // =======================================================================================================================
+    // A2A-M3B-F1F2-FIX-20261112-R1: F1 (begin fence under an unexpired cancel_pending claim) and F2 (handler post-claim fallback).
+    // =======================================================================================================================
+    it('F1 begin refuses a new generation while the latest operation is cancel_pending under an unexpired cancel or scan claim; an expired claim and recovery_required still let a follow-up supersede', async () => {
+      const recovery = boot({ port: cancelPort(stopped) })
+      await seed(recovery, 'f1-a', 'TASK_STATE_WORKING', 'm1')
+      expect(await recovery.claimCancel(alice, 'f1-a', 'tok-a')).toBeDefined()
+      await expect(recovery.begin(alice, 'f1-a', 'm2')).rejects.toBeInstanceOf(OperationRefusedError)
+      await primary.query(`UPDATE a2a_v1_operations SET claim_kind='scan' WHERE task_id='f1-a'`)
+      await expect(recovery.begin(alice, 'f1-a', 'm2')).rejects.toBeInstanceOf(OperationRefusedError)
+      expect((await ops()).filter((row) => row.taskId === 'f1-a')).toHaveLength(1)
+      expect(await op('f1-a')).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovering' })
+      // Expired: the follow-up supersedes generation 1 exactly as M3b defines.
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_updated_at = now() - interval '1 hour' WHERE task_id='f1-a'`)
+      expect((await recovery.begin(alice, 'f1-a', 'm2')).generation).toBe(2)
+      // recovery_required: the follow-up stays the exit from a stuck row.
+      await seed(recovery, 'f1-b', 'TASK_STATE_WORKING', 'm1')
+      await recovery.claimCancel(alice, 'f1-b', 'tok-b')
+      await primary.query(`UPDATE a2a_v1_operations SET recovery_state='recovery_required' WHERE task_id='f1-b'`)
+      expect((await recovery.begin(alice, 'f1-b', 'm2')).generation).toBe(2)
+      // A started operation with no claim is unaffected.
+      await seed(recovery, 'f1-c', 'TASK_STATE_WORKING', 'm1')
+      expect((await recovery.begin(alice, 'f1-c', 'm2')).generation).toBe(2)
+    })
+
+    it('F1 HTTP race: a follow-up SendMessage while executor.cancelTask is held never lets CancelTask answer CANCELED without a stored receipt', async () => {
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => { release = resolve })
+      const recovery = boot({ port: cancelPort(stopped) })
+      const runtime = await startHttp(recovery, holdStore(), { cancelHold: hold })
+      const client = await runtime.clientFor()
+      const sent = await client.sendMessage(send('working'))
+      if (!('id' in sent)) throw new Error('expected task')
+      const id = sent.id
+      const cancelling = client.cancelTask({ id, tenant: '', metadata: undefined }).then((value) => ({ value }), (error: unknown) => ({ error }))
+      await vi.waitFor(() => expect(runtime.canceled).toContain(id), { timeout: 15_000, interval: 25 })
+      const followUp = SendMessageRequest.fromJSON({
+        message: { messageId: `f1-follow-${id}`, taskId: id, role: 'ROLE_USER', parts: [{ text: 'working', mediaType: 'text/plain' }] },
+        configuration: { returnImmediately: true },
+      })
+      await client.sendMessage(followUp).catch(() => undefined)
+      release()
+      const result = await cancelling
+      const answeredCanceled = 'value' in result && result.value.status?.state === TaskState.TASK_STATE_CANCELED
+      if (answeredCanceled) expect((await op(id, 1)).receipt).not.toBeNull()
+      expect((await ops()).filter((row) => row.taskId === id)).toHaveLength(1)
+      expect(answeredCanceled).toBe(true)
+      expect(await stateOf(id)).toBe('TASK_STATE_CANCELED')
+    })
+
+    it('F2 a failure after the handler claim (a terminal answer that cannot be stored) ends recovery_required, never an unmarked recovering row', async () => {
+      const oversized = { status: 'terminal', receiptRef: digest('e'), terminal: { state: 'completed', parts: [{ text: 'x'.repeat(1024 * 1024) }] } }
+      const o = await orphan(oversized)
+      await expect(o.client.cancelTask({ id: o.id, tenant: '', metadata: undefined })).rejects.toBeDefined()
+      expect(await op(o.id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required' })
+      expect(await stateOf(o.id)).toBe('TASK_STATE_WORKING')
     })
   })
 
