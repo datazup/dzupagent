@@ -1681,6 +1681,30 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       expect(await op(o.id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required' })
       expect(await stateOf(o.id)).toBe('TASK_STATE_WORKING')
     })
+
+    it('F2 a task that disappears after the handler claim (TaskNotFound from the SDK cancel) still flags the row recovery_required and keeps the not-found answer', async () => {
+      const { id } = await orphanFromRestart('working')
+      const inner = holdStore()
+      let vanished = false
+      const store: TaskStore & { cancelHoldBack: true } = {
+        cancelHoldBack: true, // a hold-back store (the handler's construction check reads the marker)
+        load: async (taskId: string, context: ServerCallContext) => {
+          if (!vanished) {
+            const latest = await primary.query(`SELECT state FROM a2a_v1_operations WHERE task_id=$1 ORDER BY generation DESC LIMIT 1`, [taskId])
+            vanished = latest.rows[0]?.state === 'cancel_pending' // the claim exists: from now on the task is gone
+          }
+          return vanished ? undefined : inner.load(taskId, context)
+        },
+        save: (task: Task, context: ServerCallContext) => inner.save(task, context),
+        list: (params: Parameters<typeof inner.list>[0], context: ServerCallContext) => inner.list(params, context),
+      }
+      const p = cancelPort(stopped)
+      const runtime = await startHttp(boot({ port: p }), store)
+      await expect((await runtime.clientFor()).cancelTask({ id, tenant: '', metadata: undefined })).rejects.toMatchObject({ envelopeCode: -32001 })
+      expect(vanished).toBe(true)
+      expect(await op(id)).toMatchObject({ state: 'cancel_pending', recoveryState: 'recovery_required' })
+      expect(p.inspect).not.toHaveBeenCalled()
+    })
   })
 
   // =========================================================================================================================
