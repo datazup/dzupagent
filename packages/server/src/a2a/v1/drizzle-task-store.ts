@@ -5,6 +5,7 @@ import { and, desc, eq, gt, isNull, lt, notInArray, or, sql, type SQL } from 'dr
 import { a2aV1Tasks } from '../../persistence/drizzle-schema.js'
 import type { DrizzleMutationResult, DrizzleStoreDatabase } from '../../persistence/drizzle-store-types.js'
 import { dzupOwnerResolver } from './identity.js'
+import { TASK_LOCK_SEED, taskLockKey } from './recovery-port.js'
 
 const MAX_BYTES = 1024 * 1024
 const STATES = new Set([
@@ -21,9 +22,15 @@ interface StoreLog {
   operation: 'a2a.v1.store.malformed-row' | 'a2a.v1.store.terminal-write' | 'a2a.v1.store.serialization'
 }
 
-interface StoreOptions {
+export interface StoreOptions {
   /** Server-side diagnostics only. No payload, id, scope, or driver text is logged here. */
   logger?: (entry: StoreLog) => void
+  /**
+   * M3b: hold back a CANCELED save while the task's latest operation is `cancel_pending` (a silent drop, like the M2 terminal fence).
+   * Required when the recovery instance has a port: the handler writes CANCELED itself, only on a receipted stop. Without this option
+   * `save` is the M2 statement byte for byte and never references the operations table.
+   */
+  cancelHoldBack?: true
 }
 
 // The common database surface intentionally omits driver-specific upsert methods.
@@ -32,6 +39,16 @@ interface StoreOptions {
 interface GuardedInsert extends DrizzleMutationResult {
   onConflictDoUpdate(config: { target: unknown; set: unknown; setWhere: SQL }): DrizzleMutationResult
 }
+
+/**
+ * P_HOLDBACK: refuse a CANCELED write while the LATEST operation of the task is `cancel_pending` (a superseded generation never holds
+ * back). Evaluated only when the store was constructed with the hold-back option. Built lazily like the recovery predicates.
+ */
+const heldBack = (): SQL => sql`not (excluded.state = 'TASK_STATE_CANCELED' and exists (
+  select 1 from "a2a_v1_operations" "oh" where "oh"."tenant_id" = ${a2aV1Tasks.tenantId} and "oh"."owner_key" = ${a2aV1Tasks.ownerKey}
+    and "oh"."task_id" = ${a2aV1Tasks.id} and "oh"."state" = 'cancel_pending'
+    and "oh"."generation" = (select max("o2"."generation") from "a2a_v1_operations" "o2"
+      where "o2"."tenant_id" = "oh"."tenant_id" and "o2"."owner_key" = "oh"."owner_key" and "o2"."task_id" = "oh"."task_id")))`
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -80,7 +97,26 @@ function taskJSON(value: unknown): value is Record<string, unknown> {
 
 /** Explicit opt-in SDK TaskStore. The M1 sanitizer must remain the outer wrapper. */
 export class DrizzleA2AV1TaskStore implements TaskStore {
-  constructor(private readonly db: DrizzleStoreDatabase, private readonly opts: StoreOptions = {}) {}
+  /** True only when the store was constructed with the hold-back; `createA2AV1Handler` checks it when recovery has a port. */
+  readonly cancelHoldBack: boolean
+
+  constructor(private readonly db: DrizzleStoreDatabase, private readonly opts: StoreOptions = {}) {
+    this.cancelHoldBack = opts.cancelHoldBack === true
+    // A hold-back CANCELED save takes the per-task advisory lock in a transaction (the lock every cancel claim and recovery writer takes).
+    if (this.cancelHoldBack && typeof (db as Partial<{ transaction: unknown }>).transaction !== 'function') {
+      throw new Error('A2A v1 cancel hold-back requires a database with transaction support')
+    }
+  }
+
+  /** Runs `run` in one transaction after taking the per-task advisory lock: the predicate statement starts after the lock is held. */
+  private async withTaskLock<T>(scope: { tenantId: string; ownerKey: string }, taskId: string, run: (db: DrizzleStoreDatabase) => Promise<T>): Promise<T> {
+    const key = taskLockKey({ ...scope, taskId })
+    return (this.db as unknown as { transaction<R>(fn: (tx: DrizzleStoreDatabase) => Promise<R>): Promise<R> }).transaction(async (tx) => {
+      // A select without a FROM clause is only a builder and never runs: give it a source so the lock is actually taken.
+      await tx.select({ locked: sql`pg_advisory_xact_lock(hashtextextended(${key}, ${TASK_LOCK_SEED}))` }).from(sql`(select 1) as "lk"`)
+      return run(tx)
+    })
+  }
 
   private log(entry: StoreLog): void {
     try {
@@ -135,20 +171,26 @@ export class DrizzleA2AV1TaskStore implements TaskStore {
       statusTimestamp: snapshot.status!.timestamp ? new Date(snapshot.status!.timestamp) : null,
       task: payload, updatedAt: new Date(),
     }
-    const insert = this.db.insert(a2aV1Tasks).values(values) as unknown as GuardedInsert
-    const rows = await insert.onConflictDoUpdate({
-      target: [a2aV1Tasks.tenantId, a2aV1Tasks.ownerKey, a2aV1Tasks.id],
-      set: {
-        contextId: values.contextId, state, statusTimestamp: values.statusTimestamp, task: payload,
-        updatedAt: sql`case when ${a2aV1Tasks.task} = excluded.task then ${a2aV1Tasks.updatedAt} else excluded.updated_at end`,
-      },
-      // A single row-level SQL fence: first terminal write wins, even across
-      // independent store instances/connections. Identical retries are allowed.
-      setWhere: and(
-        eq(a2aV1Tasks.tenantId, scope.tenantId), eq(a2aV1Tasks.ownerKey, scope.ownerKey),
-        or(notInArray(a2aV1Tasks.state, TERMINAL), sql`${a2aV1Tasks.task} = excluded.task`)
-      )!,
-    }).returning({ id: a2aV1Tasks.id })
+    const write = async (db: DrizzleStoreDatabase) => {
+      const insert = db.insert(a2aV1Tasks).values(values) as unknown as GuardedInsert
+      return insert.onConflictDoUpdate({
+        target: [a2aV1Tasks.tenantId, a2aV1Tasks.ownerKey, a2aV1Tasks.id],
+        set: {
+          contextId: values.contextId, state, statusTimestamp: values.statusTimestamp, task: payload,
+          updatedAt: sql`case when ${a2aV1Tasks.task} = excluded.task then ${a2aV1Tasks.updatedAt} else excluded.updated_at end`,
+        },
+        // A single row-level SQL fence: first terminal write wins, even across
+        // independent store instances/connections. Identical retries are allowed.
+        setWhere: and(
+          eq(a2aV1Tasks.tenantId, scope.tenantId), eq(a2aV1Tasks.ownerKey, scope.ownerKey),
+          or(notInArray(a2aV1Tasks.state, TERMINAL), sql`${a2aV1Tasks.task} = excluded.task`),
+          ...(this.cancelHoldBack ? [heldBack()] : [])
+        )!,
+      }).returning({ id: a2aV1Tasks.id })
+    }
+    // M3b round 2: a CANCELED save of a hold-back store waits for the same per-task lock as the cancel claim, so a save that was blocked on the
+    // task row cannot commit CANCELED after a claim committed (the predicate is evaluated by a statement that starts after the lock is held).
+    const rows = this.cancelHoldBack && state === 'TASK_STATE_CANCELED' ? await this.withTaskLock(scope, snapshot.id, write) : await write(this.db)
     if (rows.length === 0) this.log({ level: 'warn', operation: 'a2a.v1.store.terminal-write' })
   }
 

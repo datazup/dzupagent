@@ -13,6 +13,13 @@ export class OperationRefusedError extends Error {
 export const RECOVERY_REQUIRED_TEXT = 'Recovery required; the operator is informed'
 export const CANCEL_REFUSED_TEXT = 'Task cannot be canceled while recovery is pending'
 export const NOT_STARTED_TEXT = 'Task was not started; resubmit'
+/** Defaults shared by the handler's cancel flow and the scanner. */
+export const RECOVERY_DEFAULTS = { minAgeMs: 60_000, claimTtlMs: 300_000, inspectTimeoutMs: 10_000 } as const
+/** Fixed advisory-lock namespace (the bigint seed of hashtextextended) and key for every writer of one task's recovery state. */
+export const TASK_LOCK_SEED = 4121955
+export const taskLockKey = (scope: { tenantId: string; ownerKey: string; taskId: string }): string =>
+  `a2a:v1:recovery:${JSON.stringify([scope.tenantId, scope.ownerKey, scope.taskId])}`
+export const CANCELED_TEXT = 'Task was canceled'
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u
 export const MAX_RESULT_BYTES = 1024 * 1024
@@ -20,10 +27,20 @@ export const MAX_RESULT_BYTES = 1024 * 1024
 export const MAX_PARTS = 256
 export const MAX_MEDIA_TYPE_CHARS = 256
 
-export type InspectStatus = 'running' | 'terminal' | 'not_applied'
+export type InspectKind = 'dispatch' | 'cancel'
+/** `stopped` is a cancel-kind answer only: the Worker side confirms the work has stopped. */
+export type InspectStatus = 'running' | 'terminal' | 'not_applied' | 'stopped'
 export type TerminalOutcome = 'completed' | 'failed' | 'canceled' | 'rejected'
 
 export interface InspectRequest {
+  operationKey: string
+  tenantId: string
+  taskId: string
+  /** M3b: which effect is being inspected. The scanner and the cancel flow always send it. */
+  kind: InspectKind
+}
+
+export interface StopRequest {
   operationKey: string
   tenantId: string
   taskId: string
@@ -41,15 +58,22 @@ export interface InspectAnswer {
   terminal?: { state: TerminalOutcome; parts?: TextPart[] }
 }
 
-/** Read-only, definitive inspect port. A real Worker/Steward adapter is M3b; tests use a labelled fake. */
+/** Read-only, definitive inspect port. The Worker/Steward adapter lives in Scripts (M3b part c); tests use a labelled fake. */
 export interface A2AExecutionPort {
   inspect(request: InspectRequest): Promise<unknown> | unknown
+  /**
+   * Optional host hook (M3b D3/D15): best-effort request to stop the work, called once per cancel claim by the request handler only
+   * (never by the scanner), bounded by the inspect timeout. Its outcome is ignored: only a later receipted inspect answer cancels.
+   */
+  requestStop?(request: StopRequest): Promise<unknown> | unknown
 }
 
 export const TERMINAL_TASK_STATES = [
   'TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_CANCELED', 'TASK_STATE_REJECTED',
 ] as const
 const SCANNED_TASK_STATES = ['TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING']
+/** The task states in which a dispatch (and so a cancel claim) can still be outstanding. */
+export const isDispatchOutstanding = (taskState: string): boolean => SCANNED_TASK_STATES.includes(taskState)
 
 export const TERMINAL_STATE_NAME: Record<TerminalOutcome, string> = {
   completed: 'TASK_STATE_COMPLETED', failed: 'TASK_STATE_FAILED', canceled: 'TASK_STATE_CANCELED', rejected: 'TASK_STATE_REJECTED',
@@ -86,13 +110,13 @@ export function parseTextParts(value: unknown): TextPart[] | undefined {
 
 /**
  * "A positive, receipted report resolves; unknown is never guessed." Anything that is not a valid, receipted
- * answer (including the retired `stopped` literal) is `undefined`, which callers treat as unknown.
+ * answer is `undefined`, which callers treat as unknown. `stopped` is accepted only for the cancel kind.
  */
-export function parseInspectAnswer(raw: unknown): InspectAnswer | undefined {
+export function parseInspectAnswer(raw: unknown, kind: InspectKind = 'dispatch'): InspectAnswer | undefined {
   try {
     if (!record(raw)) return undefined
     const { status, receiptRef, terminal } = raw
-    if (status !== 'running' && status !== 'terminal' && status !== 'not_applied') return undefined
+    if (status !== 'running' && status !== 'terminal' && status !== 'not_applied' && !(status === 'stopped' && kind === 'cancel')) return undefined
     if (typeof receiptRef !== 'string' || !DIGEST.test(receiptRef)) return undefined
     if (status !== 'terminal') return { status, receiptRef }
     if (!record(terminal) || typeof terminal.state !== 'string' || !Object.hasOwn(TERMINAL_STATE_NAME, terminal.state)) return undefined
@@ -124,19 +148,23 @@ export interface OperationView {
   bootId: string
 }
 
-/** Projection applies only to the latest `started` operation of a non-terminal task. */
+/** Projection applies only to the latest `started` or `cancel_pending` operation of a non-terminal task. */
 export function shouldProjectRecovery(operation: OperationView | undefined, taskState: string): boolean {
-  if (!operation || operation.state !== 'started' || isTerminalTaskState(taskState)) return false
+  if (!operation || (operation.state !== 'started' && operation.state !== 'cancel_pending') || isTerminalTaskState(taskState)) return false
   return operation.recoveryState === 'recovery_required' ||
     (operation.recoveryState === 'recovering' && operation.claimKind === 'late')
 }
 
 /**
- * The one cancel guard (cancel propagation is M3b). Refuse when the latest operation is `started` on a non-terminal task and either
- * (a) a recovery state is set (other than not_applied) or (b) it belongs to another boot and the task is SUBMITTED/WORKING.
+ * The cancel guard of a recovery instance WITHOUT a port (with a port, the handler-owned cancel flow supersedes it). Refuse when the
+ * latest operation is `cancel_pending` on a non-terminal task (a leftover row must not produce an unexplained cancel), or is `started` on
+ * a non-terminal task and either (a) a recovery state is set (other than not_applied) or (b) it belongs to another boot and the task is
+ * SUBMITTED/WORKING.
  */
 export function cancelGuardRefuses(operation: OperationView | undefined, taskState: string, currentBoot: string): boolean {
-  if (!operation || operation.state !== 'started' || isTerminalTaskState(taskState)) return false
+  if (!operation || isTerminalTaskState(taskState)) return false
+  if (operation.state === 'cancel_pending') return true
+  if (operation.state !== 'started') return false
   if (operation.recoveryState !== null && operation.recoveryState !== 'not_applied') return true
   return operation.bootId !== currentBoot && SCANNED_TASK_STATES.includes(taskState)
 }
