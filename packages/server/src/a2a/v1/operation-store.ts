@@ -102,6 +102,16 @@ function pClaimCancel(t: ScanTimings): SQL {
       or ${op('recovery_updated_at')} < now() - ${interval(t.claimTtlMs)}))`
 }
 
+/**
+ * A2A-M3B-F1F2-FIX-20261112-R1 (amends M3b D2.7): a cancel in flight. The latest operation is cancel_pending under an UNEXPIRED
+ * recovering claim; a follow-up must not open generation n+1 over it, or the latest-only hold-back would let a CANCELED with no
+ * receipt land. An expired claim, recovery_required or any other recovery state keeps the M3b rule (the follow-up supersedes).
+ */
+function pCancelInFlight(claimTtlMs: number): SQL {
+  return sql`(${op('state')} = 'cancel_pending' and ${op('recovery_state')} = 'recovering' and ${op('claim_kind')} in ('scan', 'cancel')
+    and ${op('recovery_updated_at')} >= now() - ${interval(claimTtlMs)})`
+}
+
 const pToken = (token: string): SQL => sql`(${op('claim_token')} = ${token} and ${op('recovery_state')} = 'recovering')`
 
 function toRow(raw: unknown): OperationRow | undefined {
@@ -215,7 +225,8 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
    * Called from `safeExecutor.execute` before every executor invocation. A new messageId gets generation = previous + 1;
    * a repeated messageId is one atomic UPDATE that re-stamps this boot and returns the same key. Zero rows from that UPDATE
    * with an existing row means the row has a recovery state, or is an older generation than the task's latest: the call is
-   * refused and the executor is not invoked.
+   * refused and the executor is not invoked. A new messageId is also refused while the latest operation is a cancel in flight
+   * (pCancelInFlight); under the per-task lock the claim and this check serialize.
    */
   async begin(context: ServerCallContext, taskId: string, messageId: string): Promise<{ operationKey: string; generation: number }> {
     const scope = this.scope(context)
@@ -231,6 +242,11 @@ export class A2AV1Recovery implements A2AV1RecoveryStore {
       if (kept) return { operationKey: kept.operationKey, generation: kept.generation }
       const existing = await tx.select().from(a2aV1Operations).where(where).limit(1)
       if (existing.length > 0) throw new OperationRefusedError()
+      const inFlight = await tx.select({ key: a2aV1Operations.operationKey }).from(a2aV1Operations).where(and(
+        eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey), eq(a2aV1Operations.taskId, taskId),
+        latest(), pCancelInFlight(this.claimTtlMs),
+      )).limit(1)
+      if (inFlight.length > 0) throw new OperationRefusedError()
       const top = await tx.select({ value: sql`coalesce(max(${a2aV1Operations.generation}), 0)` }).from(a2aV1Operations).where(and(
         eq(a2aV1Operations.tenantId, scope.tenantId), eq(a2aV1Operations.ownerKey, scope.ownerKey), eq(a2aV1Operations.taskId, taskId),
       ))

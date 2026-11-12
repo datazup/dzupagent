@@ -162,6 +162,11 @@ class DzupRequestHandler extends DefaultRequestHandler {
       }
       await resolveClaimedOperation(recovery, claimed, token, recovery.port, recovery.inspectTimeoutMs);
     } catch {
+      // A2A-M3B-F1F2-FIX-20261112-R1 F2: as the scanner does, a failure after the claim leaves a visible, re-cancellable and
+      // late-result-capable row (recovery_required). Only if that token-fenced write fails too does the claim expire.
+      try {
+        await recovery.finish(claimed, token, { recoveryState: "recovery_required" });
+      } catch { /* the claim expires */ }
       throw logFixedAndSanitize(context, "a2a.v1.recovery.cancel");
     }
     // The stored task is the truth (never the SDK's object): CANCELED only on a receipted stop; a task that finished first is -32002.
