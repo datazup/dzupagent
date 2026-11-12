@@ -879,7 +879,8 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
           auth: { mode: 'api-key', validateKey: async (label) => ({
             alice: { id: 'alice-fixture', tenantId: 'tenant-fixture', role: 'admin' },
             other: { id: 'alice-fixture', tenantId: 'other-tenant', role: 'admin' },
-          })[label as 'alice' | 'other'] ?? null },
+            bob: { id: 'bob-fixture', tenantId: 'tenant-fixture', role: 'admin' },
+          })[label as 'alice' | 'other' | 'bob'] ?? null },
           a2a: {
             agentCardConfig: { name: 'm3a-http', description: 'M3a', baseUrl: base, version: '1', authType: 'bearer', agents: [] },
             v1: { executor, taskStore: store, recovery },
@@ -2074,6 +2075,23 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), wrapped.store)
         vi.mocked(console.error).mockClear()
         const error = await (await runtime.clientFor('other')).getTask({ id: o.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
+        expect(wrapped.calls.injected).toBe(true)
+        expect(error).toBeDefined()
+        expect(consoleText()).toContain(probe)
+        releaseInspect()
+        expect((await cancelling).status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+      })
+
+      it('the in-flight registry is keyed by owner too: the same task id requested by another owner of the same tenant keeps the generic logging while a cancel is held in flight', async () => {
+        let releaseInspect!: () => void
+        const hold = new Promise<void>((resolve) => { releaseInspect = resolve })
+        const o = await orphanR2(async () => { await hold; return stoppedAnswer })
+        const cancelling = cancelCall(o.client, o.id)
+        await until(() => expect(o.p.inspect).toHaveBeenCalled())
+        const wrapped = failingStore(holdStoreR2(), { load: 1 })
+        const runtime = await startHttp(boot({ port: cancelPortR2(stoppedAnswer) }), wrapped.store)
+        vi.mocked(console.error).mockClear()
+        const error = await (await runtime.clientFor('bob')).getTask({ id: o.id, tenant: '' }).then(() => undefined, (caught: unknown) => caught)
         expect(wrapped.calls.injected).toBe(true)
         expect(error).toBeDefined()
         expect(consoleText()).toContain(probe)
