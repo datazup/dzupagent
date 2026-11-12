@@ -153,7 +153,14 @@ class DzupRequestHandler extends DefaultRequestHandler {
       // The SDK saves CANCELED itself; the hold-back drops that save and the SDK then raises TaskNotCancelableError (recognised by name or
       // reason, never instanceof: the server bundle and @a2a-js/sdk/errors each define their own class). Any error other than a missing
       // task, including a generic one from a rejecting executor, leaves the claim held and the flow continues to the inspect.
-      if (isTaskNotFound(error)) throw error;
+      if (isTaskNotFound(error)) {
+        // A2A-M3B-F1F2-FIX-20261112-R1 F2: the task vanished after the claim. Flag the row as below (best effort, token-fenced) and keep
+        // the SDK's fixed not-found answer (-32001), which carries no stored or driver text.
+        try {
+          await recovery.finish(claimed, token, { recoveryState: "recovery_required" });
+        } catch { /* the claim expires */ }
+        throw error;
+      }
     }
     try {
       const now = await super.getTask({ id: task.id, tenant: "" }, context);
@@ -162,6 +169,11 @@ class DzupRequestHandler extends DefaultRequestHandler {
       }
       await resolveClaimedOperation(recovery, claimed, token, recovery.port, recovery.inspectTimeoutMs);
     } catch {
+      // A2A-M3B-F1F2-FIX-20261112-R1 F2: as the scanner does, a failure after the claim leaves a visible, re-cancellable and
+      // late-result-capable row (recovery_required). Only if that token-fenced write fails too does the claim expire.
+      try {
+        await recovery.finish(claimed, token, { recoveryState: "recovery_required" });
+      } catch { /* the claim expires */ }
       throw logFixedAndSanitize(context, "a2a.v1.recovery.cancel");
     }
     // The stored task is the truth (never the SDK's object): CANCELED only on a receipted stop; a task that finished first is -32002.
