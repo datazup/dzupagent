@@ -836,7 +836,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
   })
 
   /** HTTP runtime with the official SDK client; `bootRecovery` is the process boot of this runtime. */
-  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string } = {}) {
+  async function startHttp(recovery: A2AV1Recovery, store: TaskStore = tasks(), extra: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelCompletes?: boolean; completeAfterCancel?: boolean; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string; executePublishesUnclonableAfterCancel?: boolean } = {}) {
     const executed: string[] = []
     const canceled: string[] = []
     const completedPublished: string[] = []
@@ -850,6 +850,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         bus.publish(AgentEvent.task(fixture(context.taskId, state, context.contextId)))
         if (state === 'TASK_STATE_WORKING') await new Promise<void>((resolve) => gates.set(context.taskId, resolve))
         if (extra.executeRejectsAfterCancel) throw new Error(extra.executeRejectsAfterCancel)
+        if (extra.executePublishesUnclonableAfterCancel) bus.publish({ kind: 'statusUpdate', data: { taskId: context.taskId, probe: function r3ExecuteBusProbeFn() { return 1 } } } as never)
         if (extra.completeAfterCancel) { bus.publish(AgentEvent.statusUpdate(TaskStatusUpdateEvent.fromJSON({ taskId: context.taskId, contextId: context.contextId, status: { state: 'TASK_STATE_COMPLETED', timestamp: '2026-10-10T12:30:00Z' } }))); completedPublished.push(context.taskId) }
       },
       async cancelTask(taskId, bus) {
@@ -1632,7 +1633,7 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
       const runtime = await startHttp(recovery, holdStoreR2(), opts.http ?? {})
       return { id, key, p, recovery, runtime, client: await runtime.clientFor() }
     }
-    const liveR2 = async (answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; http?: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string } } = {}) => {
+    const liveR2 = async (answer: unknown, opts: { extra?: Pick<A2AExecutionPort, 'requestStop'>; recovery?: Partial<A2AV1RecoveryOptions>; http?: { cancelRejects?: boolean; cancelRejectsMessage?: string; cancelPublishesUnclonable?: boolean; executeRejectsAfterCancel?: string; executePublishesUnclonableAfterCancel?: boolean } } = {}) => {
       const p = cancelPortR2(answer, opts.extra)
       const recovery = boot({ port: p, ...(opts.recovery ?? {}) })
       const runtime = await startHttp(recovery, holdStoreR2(), opts.http ?? {})
@@ -2051,6 +2052,16 @@ describe.skipIf(gate.shouldSkip)('A2A v1 M3a orphan recovery on real Postgres', 
         await until(() => expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0))
         for (let attempt = 0; attempt < 20; attempt += 1) await stateOf(o.id) // let the SDK loop settle
         expect(consoleText()).not.toContain(probe)
+      })
+
+      it('an event the execute() publishes after the cancel started that cannot be cloned (the execute event bus runs outside the cancel scope; its error text carries source text) is logged as a fixed record only', async () => {
+        const o = await liveR2(stoppedAnswer, { http: { executePublishesUnclonableAfterCancel: true } })
+        vi.mocked(console.error).mockClear()
+        const result = await cancelCall(o.client, o.id)
+        expect(result.status!.state).toBe(TaskState.TASK_STATE_CANCELED)
+        await until(() => expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(0))
+        for (let attempt = 0; attempt < 20; attempt += 1) await stateOf(o.id)
+        expect(consoleText()).not.toContain('r3ExecuteBusProbeFn')
       })
 
       it('the in-flight registry is keyed by tenant and owner too: the same task id under another tenant keeps the generic logging while a cancel is held in flight', async () => {
