@@ -217,6 +217,27 @@ describe('createImageGenerationTool dollar threshold (R2)', () => {
     expect(code(refused)).toBe('BUDGET_EXCEEDED')
   })
 
+  it('keeps the result and raises no unhandled rejection when an async onCost rejects', async () => {
+    const { provider } = costedProvider([usage])
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      let rejected!: () => void
+      const hookDone = new Promise<void>((resolve) => { rejected = resolve })
+      const tool = createImageGenerationTool({
+        provider, model: 'gpt-image-2', maxImages: 1, store: store(),
+        onCost: async () => { rejected(); throw new Error('ledger down') },
+      })
+      const out = JSON.parse(String(await tool.invoke({ prompt: 'a' })))
+      await hookDone
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(out.costUsd).toBe(0.1505)
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
   it('keeps the result when onCost throws, and has no cost without usage or reserve', async () => {
     const { provider } = costedProvider([usage, undefined])
     const tool = createImageGenerationTool({ provider, model: 'gpt-image-2', maxImages: 3, store: store(), onCost: () => { throw new Error('ledger down') } })

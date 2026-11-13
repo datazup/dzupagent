@@ -9,7 +9,10 @@
  * fills the `Host` header; every request goes to `socketPath`.
  *
  * Scope is what that provider needs: `http:` URLs, a method, headers, a
- * string or byte body, an `AbortSignal`, and a streamed `Response` body. It
+ * string or byte body, an `AbortSignal`, and a streamed `Response` body. A
+ * `Request` input lends its method, headers and signal unless `init` overrides
+ * them; a `Request` that carries a body is refused, since only string and
+ * byte bodies are supported. It
  * follows no redirect, adds no header beyond `Host` and `Content-Length`, and
  * keeps no connection alive between calls.
  */
@@ -49,7 +52,8 @@ export function createUnixSocketFetch(options: UnixSocketFetchOptions): typeof f
 
   const socketFetch = (input: Parameters<typeof fetch>[0], init: RequestInit = {}): Promise<Response> =>
     new Promise<Response>((resolve, reject) => {
-      const signal = init.signal ?? undefined
+      const request = typeof input === 'object' && !(input instanceof URL) ? input : undefined
+      const signal = init.signal ?? request?.signal ?? undefined
       if (signal?.aborted) {
         reject(abortReason(signal))
         return
@@ -59,14 +63,17 @@ export function createUnixSocketFetch(options: UnixSocketFetchOptions): typeof f
       try {
         url = urlOf(input)
         if (url.protocol !== 'http:') throw new TypeError('unix socket fetch supports http URLs only')
+        if (request && request.body !== null && init.body === undefined) {
+          throw new TypeError('unix socket fetch does not read Request bodies; pass the body in init')
+        }
         body = bodyOf(init.body)
       } catch (error) {
         reject(error)
         return
       }
-      const method = (init.method ?? 'GET').toUpperCase()
+      const method = (init.method ?? request?.method ?? 'GET').toUpperCase()
       const headers: Record<string, string> = {}
-      new Headers(init.headers).forEach((value, key) => {
+      new Headers(init.headers ?? request?.headers).forEach((value, key) => {
         headers[key] = value
       })
       headers['host'] = url.host

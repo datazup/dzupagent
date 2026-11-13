@@ -64,6 +64,24 @@ describe('createUnixSocketFetch', () => {
     expect((await f(new Request('http://m/b'))).status).toBe(204)
   })
 
+  it('inherits method, headers and signal from a Request, and lets init override them', async () => {
+    const { socketPath, requests } = await serve(async (req, res) => {
+      res.end(JSON.stringify({ method: req.method, auth: req.headers.authorization, body: await readAll(req) }))
+    })
+    const f = createUnixSocketFetch({ socketPath })
+    const req = new Request('http://m/x', { method: 'DELETE', headers: { authorization: 'Bearer r' } })
+    expect(await (await f(req)).json()).toEqual({ method: 'DELETE', auth: 'Bearer r', body: '' })
+    const posted = new Request('http://m/x', { method: 'POST', headers: { authorization: 'Bearer r' }, body: 'payload' })
+    expect(await (await f(posted, { body: 'over' })).json()).toEqual({ method: 'POST', auth: 'Bearer r', body: 'over' })
+    expect(await (await f(req, { method: 'PUT', headers: { authorization: 'Bearer i' } })).json()).toEqual({ method: 'PUT', auth: 'Bearer i', body: '' })
+    const before = requests()
+    await expect(f(posted)).rejects.toBeInstanceOf(TypeError)
+    const controller = new AbortController()
+    controller.abort(new Error('request signal'))
+    await expect(f(new Request('http://m/x', { signal: controller.signal }))).rejects.toThrow('request signal')
+    expect(requests()).toBe(before)
+  })
+
   it('refuses non-http URLs and unsupported bodies without connecting', async () => {
     const { socketPath, requests } = await serve((_req, res) => res.end())
     const f = createUnixSocketFetch({ socketPath })

@@ -61,8 +61,8 @@ export interface ImageGenerationToolOptions {
   maxUsd?: number
   /** Held per call until its cost is known; charged in full when usage is missing or the call fails. */
   reserveUsdPerImage?: number
-  /** Receives each settled charge. A hook that throws does not change the tool result. */
-  onCost?: (event: ImageCostEvent) => void
+  /** Receives each settled charge. A hook that throws or rejects does not change the tool result. */
+  onCost?: (event: ImageCostEvent) => void | Promise<void>
   /** Default `generate_image`. */
   id?: string
   description?: string
@@ -156,7 +156,10 @@ export function createImageGenerationTool(options: ImageGenerationToolOptions): 
   const report = (event: ImageCostEvent): void => {
     if (!options.onCost) return
     try {
-      options.onCost(event)
+      const pending: unknown = options.onCost(event)
+      if (pending && typeof (pending as PromiseLike<unknown>).then === 'function') {
+        ;(pending as PromiseLike<unknown>).then(undefined, () => undefined)
+      }
     } catch {
       // The charge is already counted here; a failing ledger hook must not hide the image or the error.
     }
