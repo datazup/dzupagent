@@ -82,6 +82,34 @@ describe('createOpenAIImagesProvider refusals before any network call', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('does not dispatch when the caller aborts while the credential is resolving', async () => {
+    let release: (value: string) => void = () => undefined
+    const resolveCredential = vi.fn(() => new Promise<string>((resolve) => { release = resolve }))
+    const fetchImpl = vi.fn(async () => reply())
+    const provider = createOpenAIImagesProvider({ resolveCredential, fetchImpl: fetchImpl as never })
+    const controller = new AbortController()
+    const pending = provider.generate(base, { signal: controller.signal })
+    await Promise.resolve()
+    expect(resolveCredential).toHaveBeenCalledTimes(1)
+    controller.abort()
+    release(CREDENTIAL)
+    const err = await codeOf(pending)
+    expect(err.code).toBe('PROVIDER_TIMEOUT')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('aborts an in-flight request when the caller aborts', async () => {
+    const hanging = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    }))
+    const { provider } = setup(hanging as never)
+    const controller = new AbortController()
+    const pending = provider.generate(base, { signal: controller.signal })
+    await vi.waitFor(() => expect(hanging).toHaveBeenCalledTimes(1))
+    controller.abort()
+    expect((await codeOf(pending)).code).toBe('PROVIDER_TIMEOUT')
+  })
+
   it('validates options', () => {
     const resolveCredential = async () => CREDENTIAL
     expect(() => createOpenAIImagesProvider({ resolveCredential, baseUrl: 'ftp://x' })).toThrow(ForgeError)
@@ -125,8 +153,15 @@ describe('createOpenAIImagesProvider request', () => {
     expect(body).not.toHaveProperty('response_format')
   })
 
-  it('returns bytes, sha256, mime type, reported model and usage', async () => {
-    const usage = { input_tokens: 12, output_tokens: 3000, total_tokens: 3012, input_tokens_details: { text_tokens: 12 } }
+  it('returns bytes, sha256, mime type, reported model and usage with details', async () => {
+    const usage = {
+      input_tokens: 12,
+      output_tokens: 3000,
+      total_tokens: 3012,
+      input_tokens_details: { text_tokens: 12, image_tokens: 0, junk: 'x' },
+      output_tokens_details: { image_tokens: 3000, text_tokens: -1 },
+      unknown_field: { nested: true },
+    }
     const { provider } = setup(vi.fn(async () => reply(PNG, { model: 'gpt-image-2.6-flare-x', usage })) as never)
     const result = await provider.generate({ ...base, complexity: 'high' })
     expect(Array.from(result.bytes)).toEqual(Array.from(PNG))
@@ -138,8 +173,22 @@ describe('createOpenAIImagesProvider request', () => {
       quality: 'auto',
       complexity: 'high',
       outputFormat: 'png',
-      usage: { inputTokens: 12, outputTokens: 3000, totalTokens: 3012 },
     })
+    expect(result.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 3000,
+      totalTokens: 3012,
+      inputTokensDetails: { textTokens: 12, imageTokens: 0 },
+      outputTokensDetails: { imageTokens: 3000 },
+    })
+    expect(result).not.toHaveProperty('revisedPrompt')
+  })
+
+  it('keeps revised_prompt when the provider returns one', async () => {
+    const body = JSON.stringify({ data: [{ b64_json: b64(PNG), revised_prompt: 'a tidy settings screen' }] })
+    const { provider } = setup(vi.fn(async () => new Response(body, { status: 200 })) as never)
+    const result = await provider.generate(base)
+    expect(result.revisedPrompt).toBe('a tidy settings screen')
   })
 
   it('accepts jpeg with a jpeg signature', async () => {

@@ -201,6 +201,7 @@ export type {
   ImageGenerationResult,
   ImageGenerateOptions,
   ImageUsage,
+  ImageTokenDetails,
   ImageSize,
   ImageQuality,
   ImageComplexity,

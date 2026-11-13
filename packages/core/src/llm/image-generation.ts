@@ -49,10 +49,18 @@ export interface ImageGenerationRequest {
   outputFormat?: ImageOutputFormat
 }
 
+export interface ImageTokenDetails {
+  imageTokens?: number
+  textTokens?: number
+}
+
+/** The provider `usage` block, keeping only non-negative integer counters. */
 export interface ImageUsage {
   inputTokens?: number
   outputTokens?: number
   totalTokens?: number
+  inputTokensDetails?: ImageTokenDetails
+  outputTokensDetails?: ImageTokenDetails
 }
 
 export interface ImageGenerationResult {
@@ -66,6 +74,8 @@ export interface ImageGenerationResult {
   quality: ImageQuality
   complexity?: ImageComplexity
   outputFormat: ImageOutputFormat
+  /** Present only when the provider returned one (GPT image models normally do not). */
+  revisedPrompt?: string
   usage?: ImageUsage
 }
 
@@ -214,21 +224,39 @@ function hasMagic(bytes: Uint8Array, format: ImageOutputFormat): boolean {
   return at(0, [0x52, 0x49, 0x46, 0x46]) && at(8, [0x57, 0x45, 0x42, 0x50])
 }
 
+const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
+
+function readDetails(value: unknown): ImageTokenDetails | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const source = value as Record<string, unknown>
+  const details: ImageTokenDetails = {}
+  if (count(source['image_tokens'])) details.imageTokens = source['image_tokens']
+  if (count(source['text_tokens'])) details.textTokens = source['text_tokens']
+  return Object.keys(details).length > 0 ? details : undefined
+}
+
 function readUsage(value: unknown): ImageUsage | undefined {
   if (!value || typeof value !== 'object') return undefined
   const source = value as Record<string, unknown>
   const usage: ImageUsage = {}
-  const take = (key: string, into: keyof ImageUsage) => {
-    const n = source[key]
-    if (typeof n === 'number' && Number.isSafeInteger(n) && n >= 0) usage[into] = n
-  }
-  take('input_tokens', 'inputTokens')
-  take('output_tokens', 'outputTokens')
-  take('total_tokens', 'totalTokens')
+  if (count(source['input_tokens'])) usage.inputTokens = source['input_tokens']
+  if (count(source['output_tokens'])) usage.outputTokens = source['output_tokens']
+  if (count(source['total_tokens'])) usage.totalTokens = source['total_tokens']
+  const input = readDetails(source['input_tokens_details'])
+  if (input) usage.inputTokensDetails = input
+  const output = readDetails(source['output_tokens_details'])
+  if (output) usage.outputTokensDetails = output
   return Object.keys(usage).length > 0 ? usage : undefined
 }
 
-function decodeImage(raw: Uint8Array, format: ImageOutputFormat, maxBytes: number): { bytes: Uint8Array; model?: string; usage?: ImageUsage } {
+interface DecodedImage {
+  bytes: Uint8Array
+  model?: string
+  revisedPrompt?: string
+  usage?: ImageUsage
+}
+
+function decodeImage(raw: Uint8Array, format: ImageOutputFormat, maxBytes: number): DecodedImage {
   let parsed: unknown
   try {
     parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw))
@@ -238,7 +266,8 @@ function decodeImage(raw: Uint8Array, format: ImageOutputFormat, maxBytes: numbe
   const reply = parsed as { data?: unknown; model?: unknown; usage?: unknown } | null
   const data = reply && typeof reply === 'object' ? reply.data : undefined
   if (!Array.isArray(data) || data.length !== 1) fail('PROVIDER_UNAVAILABLE', 'image reply did not contain exactly one image')
-  const b64 = (data[0] as { b64_json?: unknown } | null)?.b64_json
+  const item = data[0] as { b64_json?: unknown; revised_prompt?: unknown } | null
+  const b64 = item?.b64_json
   if (typeof b64 !== 'string' || b64.length === 0 || b64.length % 4 !== 0 || !BASE64.test(b64)) {
     fail('PROVIDER_UNAVAILABLE', 'image reply did not contain base64 image data')
   }
@@ -247,7 +276,9 @@ function decodeImage(raw: Uint8Array, format: ImageOutputFormat, maxBytes: numbe
   if (!hasMagic(bytes, format)) fail('PROVIDER_UNAVAILABLE', 'image reply did not match the requested format')
   const usage = readUsage(reply?.usage)
   const model = typeof reply?.model === 'string' && reply.model.length > 0 && reply.model.length <= 200 ? reply.model : undefined
-  return { bytes, ...(model ? { model } : {}), ...(usage ? { usage } : {}) }
+  const revised = item?.revised_prompt
+  const revisedPrompt = typeof revised === 'string' && revised.length > 0 && revised.length <= MAX_PROMPT_CHARS ? revised : undefined
+  return { bytes, ...(model ? { model } : {}), ...(revisedPrompt ? { revisedPrompt } : {}), ...(usage ? { usage } : {}) }
 }
 
 /**
@@ -285,7 +316,8 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
     capabilities: openAIImageCapabilities,
     async generate(request, generateOptions = {}) {
       const resolved = resolveImageRequest(request)
-      if (generateOptions.signal?.aborted) fail('PROVIDER_TIMEOUT', 'image request was aborted before dispatch')
+      const callerSignal = generateOptions.signal
+      if (callerSignal?.aborted) fail('PROVIDER_TIMEOUT', 'image request was aborted before dispatch')
 
       let credential: unknown
       try {
@@ -296,6 +328,9 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
       if (typeof credential !== 'string' || !/^[\x21-\x7e]+$/.test(credential)) {
         fail('PROVIDER_AUTH_FAILED', 'image credential could not be resolved')
       }
+      // The caller may have aborted while the credential was being resolved;
+      // a listener added to an already-aborted signal never fires.
+      if (callerSignal?.aborted) fail('PROVIDER_TIMEOUT', 'image request was aborted before dispatch')
 
       const body: Record<string, unknown> = {
         model: resolved.model,
@@ -309,7 +344,7 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
 
       const controller = new AbortController()
       const onAbort = () => controller.abort()
-      generateOptions.signal?.addEventListener('abort', onAbort, { once: true })
+      callerSignal?.addEventListener('abort', onAbort, { once: true })
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       try {
         let raw: Uint8Array
@@ -341,11 +376,12 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
           quality: resolved.quality,
           ...(resolved.complexity ? { complexity: resolved.complexity } : {}),
           outputFormat: resolved.outputFormat,
+          ...(decoded.revisedPrompt ? { revisedPrompt: decoded.revisedPrompt } : {}),
           ...(decoded.usage ? { usage: decoded.usage } : {}),
         }
       } finally {
         clearTimeout(timer)
-        generateOptions.signal?.removeEventListener('abort', onAbort)
+        callerSignal?.removeEventListener('abort', onAbort)
       }
     },
   }
