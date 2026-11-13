@@ -208,3 +208,12 @@ export type {
   ImageOutputFormat,
   OpenAIImagesProviderOptions,
 } from './llm/image-generation.js'
+export {
+  estimateImageCostUsd,
+  imagePriceRow,
+  OPENAI_IMAGE_PRICES,
+  OPENAI_IMAGE_PRICES_AS_OF,
+} from './llm/image-cost.js'
+export type { ImageCostEstimate, ImagePriceRow } from './llm/image-cost.js'
+export { createUnixSocketFetch } from './llm/unix-socket-fetch.js'
+export type { UnixSocketFetchOptions } from './llm/unix-socket-fetch.js'
