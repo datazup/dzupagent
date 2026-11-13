@@ -95,4 +95,5 @@ export type {
   ImageGenerationToolDefaults,
   ImageGenerationToolOutput,
   StoredImageInput,
+  ImageCostEvent,
 } from './tools/image-generation-tool.js'
