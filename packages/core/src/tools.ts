@@ -85,3 +85,14 @@ export type {
   HumanContactResponse,
   PendingHumanContact,
 } from './tools/human-contact-types.js'
+
+// ---------------------------------------------------------------------------
+// Image generation tool
+// ---------------------------------------------------------------------------
+export { createImageGenerationTool } from './tools/image-generation-tool.js'
+export type {
+  ImageGenerationToolOptions,
+  ImageGenerationToolDefaults,
+  ImageGenerationToolOutput,
+  StoredImageInput,
+} from './tools/image-generation-tool.js'

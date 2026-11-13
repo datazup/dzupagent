@@ -184,3 +184,26 @@ export type {
 } from './router/cost-aware-router.js'
 export { ModelTierEscalationPolicy } from './router/escalation-policy.js'
 export type { EscalationPolicyConfig, EscalationResult } from './router/escalation-policy.js'
+
+// ---------------------------------------------------------------------------
+// Image generation (OpenAI Images API)
+// ---------------------------------------------------------------------------
+export {
+  createOpenAIImagesProvider,
+  resolveImageRequest,
+  OPENAI_IMAGES_PROVIDER_ID,
+  OPENAI_IMAGE_MODELS,
+} from './llm/image-generation.js'
+export type {
+  ImageProvider,
+  ImageCapabilities,
+  ImageGenerationRequest,
+  ImageGenerationResult,
+  ImageGenerateOptions,
+  ImageUsage,
+  ImageSize,
+  ImageQuality,
+  ImageComplexity,
+  ImageOutputFormat,
+  OpenAIImagesProviderOptions,
+} from './llm/image-generation.js'
