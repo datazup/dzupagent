@@ -186,14 +186,25 @@ function statusError(status: number): never {
   fail('PROVIDER_REJECTED_REQUEST', 'image provider rejected the request', false, context)
 }
 
-async function readCapped(response: Response, maxBytes: number): Promise<Uint8Array> {
+/** Cancel a body or reader without waiting: a cancellation that never settles must not hold the call. */
+function discard(target: { cancel(): Promise<void> } | null | undefined): void {
+  try {
+    void target?.cancel().catch(() => undefined)
+  } catch {
+    // a locked or already-errored stream: nothing more to release
+  }
+}
+
+async function readCapped(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel().catch(() => undefined)
+    discard(response.body)
     fail('PROVIDER_UNAVAILABLE', 'image reply exceeded the size limit')
   }
   if (!response.body) fail('PROVIDER_UNAVAILABLE', 'image reply had no body')
   const reader = response.body.getReader()
+  // Release a stream that is not wired to the request signal once the call is over.
+  signal.addEventListener('abort', () => discard(reader), { once: true })
   const chunks: Uint8Array[] = []
   let total = 0
   for (;;) {
@@ -201,7 +212,7 @@ async function readCapped(response: Response, maxBytes: number): Promise<Uint8Ar
     if (done) break
     total += value.byteLength
     if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined)
+      discard(reader)
       fail('PROVIDER_UNAVAILABLE', 'image reply exceeded the size limit')
     }
     chunks.push(value)
@@ -375,21 +386,26 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
       try {
         let raw: Uint8Array
         try {
-          const response = await fetchImpl(endpoint, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-            redirect: 'error',
-            signal: controller.signal,
-          })
-          if (!response.ok) {
-            await response.body?.cancel().catch(() => undefined)
-            statusError(response.status)
-          }
-          raw = await readCapped(response, maxOutputBytes)
+          // The deadline is enforced here, not delegated to fetchImpl: dispatch
+          // and body consumption race the controller, so a transport or stream
+          // that ignores the signal cannot hold the call past timeoutMs.
+          raw = await untilAborted((async () => {
+            const response = await fetchImpl(endpoint, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+              redirect: 'error',
+              signal: controller.signal,
+            })
+            if (!response.ok) {
+              discard(response.body)
+              statusError(response.status)
+            }
+            return readCapped(response, maxOutputBytes, controller.signal)
+          })(), controller.signal)
         } catch (err) {
           if (err instanceof ForgeError) throw err
-          if (controller.signal.aborted) fail('PROVIDER_TIMEOUT', 'image request timed out or was aborted', true)
+          if (err === ABORTED || controller.signal.aborted) fail('PROVIDER_TIMEOUT', 'image request timed out or was aborted', true)
           fail('PROVIDER_UNAVAILABLE', 'image provider could not be reached', true)
         }
         const decoded = decodeImage(raw, resolved.outputFormat, maxOutputBytes)
@@ -408,6 +424,8 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
       } finally {
         clearTimeout(timer)
         callerSignal?.removeEventListener('abort', onAbort)
+        // Ends the reader listener and any stream still attached to the request.
+        controller.abort()
       }
     },
   }

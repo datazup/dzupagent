@@ -277,6 +277,42 @@ describe('createOpenAIImagesProvider failures', () => {
     expect(err.code).toBe('PROVIDER_TIMEOUT')
   })
 
+  it('enforces the deadline when fetchImpl ignores the signal and never settles', async () => {
+    const deaf = vi.fn(() => new Promise<Response>(() => undefined))
+    const { provider } = setup(deaf as never, { timeoutMs: 20 })
+    expect((await codeOf(provider.generate(base))).code).toBe('PROVIDER_TIMEOUT')
+  })
+
+  it('enforces the deadline on a body stream not wired to the signal', async () => {
+    const detached = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 }))
+    const { provider } = setup(detached as never, { timeoutMs: 20 })
+    expect((await codeOf(provider.generate(base))).code).toBe('PROVIDER_TIMEOUT')
+  })
+
+  it('honours a caller abort on a body stream not wired to the signal', async () => {
+    const detached = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 }))
+    const { provider } = setup(detached as never)
+    const controller = new AbortController()
+    const pending = provider.generate(base, { signal: controller.signal })
+    await vi.waitFor(() => expect(detached).toHaveBeenCalledTimes(1))
+    controller.abort()
+    expect((await codeOf(pending)).code).toBe('PROVIDER_TIMEOUT')
+  })
+
+  it('does not wait for a body cancellation that never settles', async () => {
+    const stuckCancel = () => new ReadableStream<Uint8Array>({ start() {}, cancel: () => new Promise<void>(() => undefined) })
+    const errorReply = vi.fn(async () => new Response(stuckCancel(), { status: 500 }))
+    const first = setup(errorReply as never, { timeoutMs: 5_000 }).provider
+    expect((await codeOf(first.generate(base))).code).toBe('PROVIDER_UNAVAILABLE')
+
+    const oversize = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(64)) },
+      cancel: () => new Promise<void>(() => undefined),
+    }), { status: 200 }))
+    const second = setup(oversize as never, { timeoutMs: 5_000, maxOutputBytes: 16 }).provider
+    expect((await codeOf(second.generate(base))).message).toBe('image reply exceeded the size limit')
+  })
+
   it('refuses an oversize body, declared or streamed', async () => {
     const { provider } = setup(vi.fn(async () => reply()) as never, { maxOutputBytes: 16 })
     expect((await codeOf(provider.generate(base))).message).toBe('image reply exceeded the size limit')
