@@ -281,6 +281,31 @@ function decodeImage(raw: Uint8Array, format: ImageOutputFormat, maxBytes: numbe
   return { bytes, ...(model ? { model } : {}), ...(revisedPrompt ? { revisedPrompt } : {}), ...(usage ? { usage } : {}) }
 }
 
+const ABORTED = Symbol('aborted')
+
+/**
+ * Settle with `work`, or reject with {@link ABORTED} as soon as `signal`
+ * aborts. A late result or rejection of `work` is ignored.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(ABORTED)
+    if (signal.aborted) return onAbort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(err)
+      },
+    )
+  })
+}
+
 /**
  * Validate a request against the pinned table and fill its defaults. Exported
  * for the image tool so both reject the same inputs before any spend.
@@ -321,8 +346,9 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
 
       let credential: unknown
       try {
-        credential = await resolveCredential()
-      } catch {
+        credential = await untilAborted(Promise.resolve().then(resolveCredential), callerSignal)
+      } catch (err) {
+        if (err === ABORTED) fail('PROVIDER_TIMEOUT', 'image request was aborted before dispatch')
         fail('PROVIDER_AUTH_FAILED', 'image credential could not be resolved')
       }
       if (typeof credential !== 'string' || !/^[\x21-\x7e]+$/.test(credential)) {

@@ -54,10 +54,12 @@ describe('createOpenAIImagesProvider refusals before any network call', () => {
   const cases: Array<[string, Partial<ImageGenerationRequest> & Record<string, unknown>]> = [
     ['unknown model', { model: 'gpt-image-1' }],
     ['unsupported size', { size: '1792x1024' as never }],
-    ['quality xhigh', { quality: 'xhigh' as never }],
-    ['quality max', { quality: 'max' as never }],
-    ['svg output', { outputFormat: 'svg' as never }],
-    ['gif output', { outputFormat: 'gif' as never }],
+    ...OPENAI_IMAGE_MODELS.flatMap((model): Array<[string, Partial<ImageGenerationRequest>]> => [
+      [`quality xhigh on ${model}`, { model, quality: 'xhigh' as never }],
+      [`quality max on ${model}`, { model, quality: 'max' as never }],
+      [`svg output on ${model}`, { model, outputFormat: 'svg' as never }],
+      [`gif output on ${model}`, { model, outputFormat: 'gif' as never }],
+    ]),
     ['complexity on gpt-image-2', { model: 'gpt-image-2', complexity: 'low' }],
     ['bad complexity', { complexity: 'extreme' as never }],
     ['empty prompt', { prompt: '   ' }],
@@ -95,6 +97,32 @@ describe('createOpenAIImagesProvider refusals before any network call', () => {
     release(CREDENTIAL)
     const err = await codeOf(pending)
     expect(err.code).toBe('PROVIDER_TIMEOUT')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rejects promptly when aborted while the credential never settles', async () => {
+    const resolveCredential = vi.fn(() => new Promise<string>(() => undefined))
+    const fetchImpl = vi.fn(async () => reply())
+    const provider = createOpenAIImagesProvider({ resolveCredential, fetchImpl: fetchImpl as never })
+    const controller = new AbortController()
+    const pending = provider.generate(base, { signal: controller.signal })
+    await vi.waitFor(() => expect(resolveCredential).toHaveBeenCalledTimes(1))
+    controller.abort()
+    expect((await codeOf(pending)).code).toBe('PROVIDER_TIMEOUT')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('reports an abort, not an auth failure, when the resolver rejects after the abort', async () => {
+    let fail: (err: Error) => void = () => undefined
+    const resolveCredential = vi.fn(() => new Promise<string>((_resolve, reject) => { fail = reject }))
+    const fetchImpl = vi.fn(async () => reply())
+    const provider = createOpenAIImagesProvider({ resolveCredential, fetchImpl: fetchImpl as never })
+    const controller = new AbortController()
+    const pending = provider.generate(base, { signal: controller.signal })
+    await vi.waitFor(() => expect(resolveCredential).toHaveBeenCalledTimes(1))
+    controller.abort()
+    fail(new Error('vault closed'))
+    expect((await codeOf(pending)).code).toBe('PROVIDER_TIMEOUT')
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
