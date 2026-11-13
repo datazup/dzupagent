@@ -299,6 +299,38 @@ describe('createOpenAIImagesProvider failures', () => {
     expect((await codeOf(pending)).code).toBe('PROVIDER_TIMEOUT')
   })
 
+  it('cancels a response that arrives after the deadline', async () => {
+    const cancel = vi.fn()
+    let deliver: (response: Response) => void = () => undefined
+    const late = vi.fn(() => new Promise<Response>((resolve) => { deliver = resolve }))
+    const { provider } = setup(late as never, { timeoutMs: 20 })
+    expect((await codeOf(provider.generate(base))).code).toBe('PROVIDER_TIMEOUT')
+    // The transport ignored the signal and now answers after the deadline.
+    deliver(new Response(new ReadableStream<Uint8Array>({ start() {}, cancel }), { status: 200 }))
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalled(), { timeout: 1_000 })
+  })
+
+  it('replaces a ForgeError from the transport or the stream with a fixed error', async () => {
+    const leaky = () => new ForgeError({
+      code: 'PROVIDER_AUTH_FAILED',
+      message: `transport detail ${CREDENTIAL}`,
+      context: { header: `Bearer ${CREDENTIAL}` },
+    })
+    const rejecting = vi.fn(async () => { throw leaky() })
+    const erroring = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.error(leaky()) },
+    }), { status: 200 }))
+    for (const fetchImpl of [rejecting, erroring]) {
+      const { provider } = setup(fetchImpl as never)
+      const err = await codeOf(provider.generate(base))
+      expect(err.code).toBe('PROVIDER_UNAVAILABLE')
+      expect(err.message).toBe('image provider could not be reached')
+      expect(err.cause).toBeUndefined()
+      expect(err.context).toBeUndefined()
+      expect(JSON.stringify(err) + err.message + String(err.stack)).not.toContain(CREDENTIAL)
+    }
+  })
+
   it('does not wait for a body cancellation that never settles', async () => {
     const stuckCancel = () => new ReadableStream<Uint8Array>({ start() {}, cancel: () => new Promise<void>(() => undefined) })
     const errorReply = vi.fn(async () => new Response(stuckCancel(), { status: 500 }))

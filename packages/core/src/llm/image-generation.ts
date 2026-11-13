@@ -132,8 +132,17 @@ const MIME: Record<ImageOutputFormat, ImageGenerationResult['mimeType']> = {
   webp: 'image/webp',
 }
 
+/**
+ * Errors this module raised itself. Only these cross the transport boundary
+ * unchanged; anything else thrown by `fetchImpl` or a reply stream, a
+ * `ForgeError` included, is replaced with a fixed error.
+ */
+const OWN_ERRORS = new WeakSet<object>()
+
 function fail(code: ForgeErrorCode, message: string, recoverable = false, context?: Record<string, unknown>): never {
-  throw new ForgeError({ code, message, recoverable, ...(context ? { context } : {}) })
+  const err = new ForgeError({ code, message, recoverable, ...(context ? { context } : {}) })
+  OWN_ERRORS.add(err)
+  throw err
 }
 
 function openAIImageCapabilities(model: string): ImageCapabilities {
@@ -203,6 +212,11 @@ async function readCapped(response: Response, maxBytes: number, signal: AbortSig
   }
   if (!response.body) fail('PROVIDER_UNAVAILABLE', 'image reply had no body')
   const reader = response.body.getReader()
+  // A late response after the deadline: the abort listener below would never fire.
+  if (signal.aborted) {
+    discard(reader)
+    throw ABORTED
+  }
   // Release a stream that is not wired to the request signal once the call is over.
   signal.addEventListener('abort', () => discard(reader), { once: true })
   const chunks: Uint8Array[] = []
@@ -397,6 +411,11 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
               redirect: 'error',
               signal: controller.signal,
             })
+            if (controller.signal.aborted) {
+              // Resolved after the deadline or a caller abort: drop it unread.
+              discard(response.body)
+              throw ABORTED
+            }
             if (!response.ok) {
               discard(response.body)
               statusError(response.status)
@@ -404,7 +423,7 @@ export function createOpenAIImagesProvider(options: OpenAIImagesProviderOptions)
             return readCapped(response, maxOutputBytes, controller.signal)
           })(), controller.signal)
         } catch (err) {
-          if (err instanceof ForgeError) throw err
+          if (err instanceof ForgeError && OWN_ERRORS.has(err)) throw err
           if (err === ABORTED || controller.signal.aborted) fail('PROVIDER_TIMEOUT', 'image request timed out or was aborted', true)
           fail('PROVIDER_UNAVAILABLE', 'image provider could not be reached', true)
         }
