@@ -154,6 +154,16 @@ describe('prepareManagedRequest', () => {
       .toEqual(['variable_unresolved', 'persona/reviewer: persona.role not declared'])
     expect(refusal(run({ layers: [layer('task', 'task/x', 'Depth {{ run.depth }} of {{#if x}}.')] })))
       .toEqual(['variable_unresolved', 'task/x: run.depth, #if x not declared'])
+    // A supplied value does not replace the declaration, whatever the form of the placeholder.
+    const supplied = { ...request().templateContext, extra: { project: 'the fixture project', secretVar: 'x', this: 'y', else: 'z' } }
+    for (const [content, name] of [['Use {{ secretVar }}.', 'secretVar'], ['Use {{secretVar}}.', 'secretVar'],
+      ['Use {{this}}.', 'this'], ['Use {{ else }}.', 'else']] as const) {
+      expect(refusal(run({ templateContext: supplied, layers: [layer('task', 'task/x', content)] })))
+        .toEqual(['variable_unresolved', `task/x: ${name} not declared`])
+    }
+    const padded = accepted(run({ templateContext: supplied, layers: [layer('task', 'task/x', 'Use {{ secretVar }} and {{this}}.')],
+      declaredVariables: [{ name: 'secretVar', description: 's', required: true }, { name: 'this', description: 't', required: false }] }))
+    expect(padded.manifest.layers[0]?.resolvedSha256).toBe(sha256Prefixed('Use x and y.'))
     // `toString` is inherited by every object: it is not a supplied value, declared or used.
     const inherited = (required: boolean) => [...request().declaredVariables, { name: 'toString', description: 't', required }]
     expect(refusal(run({ declaredVariables: inherited(true) })))

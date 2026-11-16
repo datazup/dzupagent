@@ -268,10 +268,11 @@ function resolveLayers(request: ManagedPreparationRequest): { resolved: string[]
   const resolved: string[] = [];
   for (const layer of request.layers) {
     const used = [...layer.content.matchAll(/\{\{([^}]+)\}\}/g)].map(match => (match[1] ?? "").trim());
-    // `validateTemplate` sees only one-word names; the other forms are checked against the same declarations.
+    // `validateTemplate` sees only unpadded one-word names and skips its keywords, so every parsed placeholder is
+    // checked against the same declarations as well.
     const undeclared = [...new Set([
       ...validateTemplate(layer.content, declared).undeclaredVariables,
-      ...used.filter(name => !/^\w+$/.test(name) && !declaredNames.has(name)),
+      ...used.filter(name => !declaredNames.has(name)),
     ])];
     if (undeclared.length > 0) return { unresolved: `${layer.ref}: ${undeclared.join(", ")} not declared` };
     const missing = used.find(name => !values.has(name));
