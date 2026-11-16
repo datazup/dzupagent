@@ -218,7 +218,7 @@ function requestShapeError(request: ManagedPreparationRequest): string | null {
 const pointerPart = (key: string): string => key.replace(/~/g, "~0").replace(/\//g, "~1");
 
 /** JSON pointer of the first node outside the pilot subset, or null. */
-function schemaSubsetViolation(node: unknown, pointer: string, depth: number, seen: { properties: number }): string | null {
+export function schemaSubsetViolation(node: unknown, pointer: string, depth: number, seen: { properties: number }): string | null {
   if (!record(node) || depth > MAX_SCHEMA_DEPTH) return pointer || "/";
   for (const key of Object.keys(node)) if (!SCHEMA_KEYWORDS.has(key)) return `${pointer}/${pointerPart(key)}`;
   const type = node.type;
