@@ -166,7 +166,8 @@ function requestShapeError(request: ManagedPreparationRequest): string | null {
   if (!record(target) || !text(target.providerId) || !text(target.route) || !text(target.modelId)
     || !(target.connectorVersion === null || text(target.connectorVersion))) return "target";
   if (request.outputSchema !== undefined && !record(request.outputSchema)) return "outputSchema";
-  if (request.outputSchemaName !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(String(request.outputSchemaName))) return "outputSchemaName";
+  if (request.outputSchemaName !== undefined
+    && !(typeof request.outputSchemaName === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(request.outputSchemaName))) return "outputSchemaName";
   if (!record(request.budget) || !record(request.budget.policy)
     || (request.budget.tools !== undefined && !Array.isArray(request.budget.tools))) return "budget";
   return null;
@@ -305,7 +306,8 @@ export function prepareManagedRequest(
   for (const [name, part] of [["policy", request.policy], ["acceptance", request.acceptance], ["binding", bindingText]] as const) {
     if (!finalSystem.includes(part)) return refuse("protected_content_truncated", name);
   }
-  if (!finalPrompt.includes(request.originalRequest)) return refuse("protected_content_truncated", "originalRequest");
+  // The original request leads the prompt, so a copy of its text inside a context item cannot stand in for it.
+  if (!finalPrompt.startsWith(request.originalRequest)) return refuse("protected_content_truncated", "originalRequest");
 
   const body = {
     schema: MANAGED_PREPARATION_MANIFEST_SCHEMA,

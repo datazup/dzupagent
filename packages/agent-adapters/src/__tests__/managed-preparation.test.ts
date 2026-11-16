@@ -122,6 +122,7 @@ describe('prepareManagedRequest', () => {
     expect(refusal(run({ binding: { ...request().binding, attemptGeneration: -1 } }))).toEqual(['request_invalid', 'binding'])
     expect(refusal(run({ policy: '' }))).toEqual(['request_invalid', 'policy'])
     expect(refusal(run({ context: [{ ref: 'a\nb', text: 'x' }] }))).toEqual(['request_invalid', 'context'])
+    expect(refusal(run({ outputSchemaName: 5 as never }))).toEqual(['request_invalid', 'outputSchemaName'])
     const tampered = [{ ...layer('persona', 'persona/reviewer', 'You are helpful.'), content: 'You are careless.' }]
     expect(refusal(run({ layers: tampered }))).toEqual(['layer_hash_mismatch', 'persona/reviewer'])
     expect(refusal(run({ layers: [layer('task', 'task/x', 'Use {{secretVar}}.')] }))).toEqual(
@@ -205,6 +206,9 @@ describe('prepareManagedRequest', () => {
     expect(refusal(run())).toEqual(['protected_content_truncated', 'binding'])
     truncate(input => ({ ...input, prompt: input.prompt.slice(20) }))
     expect(refusal(run())).toEqual(['protected_content_truncated', 'originalRequest'])
+    // A copy of the request text inside a context item does not stand in for the request itself.
+    expect(refusal(run({ context: [{ ref: 'doc/copy.md', text: request().originalRequest }] })))
+      .toEqual(['protected_content_truncated', 'originalRequest'])
   })
 
   it('reports the earlier step when a request fails two steps', () => {
