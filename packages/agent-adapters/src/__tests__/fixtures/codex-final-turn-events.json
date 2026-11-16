@@ -1,0 +1,689 @@
+{
+  "provenance": "Shape fixtures written by hand for IPC-FINAL-TURN-20261116-R1. The raw records use the shapes that packages/agent-adapters/src/__tests__/codex-cli-adapter.test.ts writes inline. They are not a recording of a Codex run, and they qualify nothing.",
+  "sessionId": "11111111-1111-1111-1111-111111111111",
+  "object": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+  "otherObject": "{\"summary\":\"Another answer.\",\"items\":[]}",
+  "streams": {
+    "completedObject": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "finalProseAroundJson": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "Here is the result: {\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]} Thanks."
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "finalFencedObject": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "```json\n{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}\n```"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "finalTwoObjects": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}\n{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "finalArray": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "[{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}]"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "objectInEarlierTurn": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "Done."
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "objectInStreamDelta": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "agent_message_delta",
+        "delta": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "objectInToolResult": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.started",
+        "item": {
+          "id": "item-2",
+          "type": "command_execution",
+          "command": "ls",
+          "status": "in_progress"
+        }
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-2",
+          "type": "command_execution",
+          "command": "ls",
+          "aggregated_output": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+          "exit_code": 0,
+          "status": "completed"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "objectInReasoningItem": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-0",
+          "type": "reasoning",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "messageThenToolCall": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "item.started",
+        "item": {
+          "id": "item-2",
+          "type": "command_execution",
+          "command": "ls",
+          "status": "in_progress"
+        }
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-2",
+          "type": "command_execution",
+          "command": "ls",
+          "aggregated_output": "a.txt",
+          "exit_code": 0,
+          "status": "completed"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "messageMarkedCommentary": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+          "phase": "commentary"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "messageMarkedFinalAnswer": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+          "phase": "final_answer"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "messageNotAnItemRecord": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "agent_message",
+        "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "threadRecordAfterMessage": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "nativeInvalidNextToValidMessage": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "result": "not json",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "nativeAlone": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "turn.completed",
+        "result": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "nativeNextToSameMessage": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "result": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "nativeNextToDifferentMessage": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Another answer.\",\"items\":[]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "result": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "nativeNextToCommentary": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Another answer.\",\"items\":[]}",
+          "phase": "commentary"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "result": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "nativeAfterMessageAndToolCall": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Another answer.\",\"items\":[]}"
+        }
+      },
+      {
+        "type": "item.started",
+        "item": {
+          "id": "item-2",
+          "type": "command_execution",
+          "command": "ls",
+          "status": "in_progress"
+        }
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-2",
+          "type": "command_execution",
+          "command": "ls",
+          "aggregated_output": "a.txt",
+          "exit_code": 0,
+          "status": "completed"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "result": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "secondTurnWithoutMessage": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ],
+    "errorRecord": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "error",
+        "message": "model overloaded",
+        "code": "server_error"
+      }
+    ],
+    "turnFailedRecord": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "turn.failed",
+        "error": {
+          "message": "stream ended early"
+        }
+      }
+    ],
+    "noTerminal": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      }
+    ],
+    "completedThenFailed": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      },
+      {
+        "type": "error",
+        "message": "model overloaded",
+        "code": "server_error"
+      }
+    ],
+    "failedThenCompleted": [
+      {
+        "type": "thread.started",
+        "thread_id": "11111111-1111-1111-1111-111111111111"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "error",
+        "message": "model overloaded",
+        "code": "server_error"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "item.completed",
+        "item": {
+          "id": "item-1",
+          "type": "agent_message",
+          "text": "{\"summary\":\"Two files changed.\",\"items\":[{\"id\":1}]}"
+        }
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 2
+        }
+      }
+    ]
+  }
+}
