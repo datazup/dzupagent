@@ -58,6 +58,7 @@ const request = (over: Partial<ManagedPreparationRequest> = {}): ManagedPreparat
   declaredVariables: [
     { name: 'project', description: 'project name', required: true },
     { name: 'mode', description: 'working mode', required: false, defaultValue: 'read-only' },
+    { name: 'persona.role', description: 'role of the persona', required: true },
   ],
   context: [{ ref: 'doc/notes.md', text: 'The change touches two files.' }],
   target: { providerId: 'codex', route: 'codex-cli', connectorVersion: VERSION, modelId: MODEL },
@@ -123,6 +124,13 @@ describe('prepareManagedRequest', () => {
     expect(refusal(run({ policy: '' }))).toEqual(['request_invalid', 'policy'])
     expect(refusal(run({ context: [{ ref: 'a\nb', text: 'x' }] }))).toEqual(['request_invalid', 'context'])
     expect(refusal(run({ outputSchemaName: 5 as never }))).toEqual(['request_invalid', 'outputSchemaName'])
+    for (const templateContext of [{ extra: 42 }, { extra: { project: 7 } }, { extra: { ['__proto__']: 'x' } },
+      { persona: { role: 5 } }, { persona: 'reviewer' }, { run: { depth: '2' } }, { unknown: {} }, { task: { title: 'x' } }]) {
+      expect(refusal(run({ templateContext: templateContext as never }))).toEqual(['request_invalid', 'templateContext'])
+    }
+    for (const name of ['__proto__', '', 'a b', '.a', 'a.']) {
+      expect(refusal(run({ declaredVariables: [{ name, description: 'd', required: false }] }))).toEqual(['request_invalid', 'declaredVariables'])
+    }
     const tampered = [{ ...layer('persona', 'persona/reviewer', 'You are helpful.'), content: 'You are careless.' }]
     expect(refusal(run({ layers: tampered }))).toEqual(['layer_hash_mismatch', 'persona/reviewer'])
     expect(refusal(run({ layers: [layer('task', 'task/x', 'Use {{secretVar}}.')] }))).toEqual(
@@ -130,9 +138,35 @@ describe('prepareManagedRequest', () => {
     expect(refusal(run({ templateContext: { persona: { role: 'r' } } }))).toEqual(
       ['variable_unresolved', 'project: required variable has no value'])
     expect(refusal(run({ templateContext: { extra: { project: 'p' } } }))).toEqual(
+      ['variable_unresolved', 'persona.role: required variable has no value'])
+    const role = { name: 'persona.role', description: 'r', required: false }
+    const project = { name: 'project', description: 'p', required: true }
+    expect(refusal(run({ templateContext: { extra: { project: 'p' } }, declaredVariables: [project, role,
+      { name: 'mode', description: 'm', required: false, defaultValue: 'x' }] }))).toEqual(
       ['variable_unresolved', 'persona/reviewer: {{persona.role}}'])
-    expect(refusal(run({ declaredVariables: [{ name: 'project', description: 'p', required: true },
-      { name: 'mode', description: 'm', required: false }] }))).toEqual(['variable_unresolved', 'task/summarise: {{mode}}'])
+    expect(refusal(run({ declaredVariables: [project, role, { name: 'mode', description: 'm', required: false }] })))
+      .toEqual(['variable_unresolved', 'task/summarise: {{mode}}'])
+  })
+
+  it('requires a declaration for dotted variables and never takes an inherited property as a value', () => {
+    // A dotted variable the context can resolve is still refused when it is not declared.
+    expect(refusal(run({ declaredVariables: request().declaredVariables.filter(item => item.name !== 'persona.role') })))
+      .toEqual(['variable_unresolved', 'persona/reviewer: persona.role not declared'])
+    expect(refusal(run({ layers: [layer('task', 'task/x', 'Depth {{ run.depth }} of {{#if x}}.')] })))
+      .toEqual(['variable_unresolved', 'task/x: run.depth, #if x not declared'])
+    // `toString` is inherited by every object: it is not a supplied value, declared or used.
+    const inherited = (required: boolean) => [...request().declaredVariables, { name: 'toString', description: 't', required }]
+    expect(refusal(run({ declaredVariables: inherited(true) })))
+      .toEqual(['variable_unresolved', 'toString: required variable has no value'])
+    const uses = [...request().layers, layer('task', 'task/y', 'Value {{toString}}.')]
+    expect(refusal(run({ declaredVariables: inherited(false), layers: uses }))).toEqual(['variable_unresolved', 'task/y: {{toString}}'])
+    const own = accepted(run({ declaredVariables: inherited(true), layers: uses,
+      templateContext: { ...request().templateContext, extra: { project: 'the fixture project', toString: 'own value' } } }))
+    expect(own.manifest.layers[2]?.resolvedSha256).toBe(sha256Prefixed('Value own value.'))
+    // A numeric context field resolves as text.
+    const depth = accepted(run({ layers: [layer('task', 'task/z', 'Depth {{run.depth}}.')],
+      declaredVariables: [{ name: 'run.depth', description: 'd', required: true }], templateContext: { run: { depth: 2 } } }))
+    expect(depth.manifest.layers[0]?.resolvedSha256).toBe(sha256Prefixed('Depth 2.'))
   })
 
   it('leaves a placeholder in the original request or in a context item as text', () => {
@@ -214,6 +248,7 @@ describe('prepareManagedRequest', () => {
   it('reports the earlier step when a request fails two steps', () => {
     const badLayer = [{ ...layer('task', 'task/x', 'Use {{secretVar}}.'), contentSha256: `sha256:${'0'.repeat(64)}` as const }]
     expect(refusal(run({ binding: { ...request().binding, taskId: '' }, layers: badLayer }))[0]).toBe('request_invalid')
+    expect(refusal(run({ templateContext: { extra: 42 } as never, layers: badLayer }))).toEqual(['request_invalid', 'templateContext'])
     expect(refusal(run({ layers: badLayer, target: { ...request().target, providerId: 'claude' } }))[0]).toBe('layer_hash_mismatch')
     expect(refusal(run({ layers: [layer('task', 'task/x', 'Use {{secretVar}}.')], target: { ...request().target, providerId: 'claude' } }))[0])
       .toBe('variable_unresolved')

@@ -128,6 +128,15 @@ export type ManagedPreparationResult =
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const PLACEHOLDER = /\{\{[^}]+\}\}/;
+/** Variable names: words joined by dots. A leading underscore is not allowed, so `__proto__` is not a name. */
+const VARIABLE_NAME = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/;
+/** The context fields `resolvePersonaTemplate` reads, by group. `run.depth` is a number, the rest are strings. */
+const CONTEXT_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  persona: ["id", "name", "role"],
+  task: ["description"],
+  run: ["depth", "branchId", "rootRunId"],
+  parent: ["output"],
+};
 const LAYER_KINDS = new Set(["persona", "task", "blueprint-overlay", "provider-overlay"]);
 const SCHEMA_KEYWORDS = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "description"]);
 const SCHEMA_TYPES = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
@@ -144,6 +153,39 @@ const scalar = (value: unknown): boolean =>
 const refuse = (code: ManagedPreparationRefusalCode, detail?: string): ManagedPreparationResult =>
   ({ ok: false, code, ...(detail === undefined ? {} : { detail }) });
 
+function templateContextValid(context: unknown): boolean {
+  if (!record(context)) return false;
+  for (const [group, value] of Object.entries(context)) {
+    if (value === undefined) continue;
+    if (group === "extra") {
+      if (!record(value) || !Object.entries(value).every(([key, item]) => VARIABLE_NAME.test(key) && typeof item === "string")) return false;
+      continue;
+    }
+    const fields = Object.hasOwn(CONTEXT_FIELDS, group) ? CONTEXT_FIELDS[group] : undefined;
+    if (!fields || !record(value)) return false;
+    for (const [field, item] of Object.entries(value)) {
+      if (!fields.includes(field)) return false;
+      const valid = group === "run" && field === "depth" ? Number.isSafeInteger(item) : typeof item === "string";
+      if (item !== undefined && !valid) return false;
+    }
+  }
+  return true;
+}
+
+/** Own values only, keyed as the resolver keys them. An inherited property is never a value. */
+function templateValues(context: PersonaTemplateContext, extra: Record<string, string>): Map<string, string> {
+  const values = new Map<string, string>();
+  for (const [group, fields] of Object.entries(CONTEXT_FIELDS)) {
+    const source = (context as Record<string, unknown>)[group];
+    if (!record(source)) continue;
+    for (const field of fields) {
+      if (Object.hasOwn(source, field) && source[field] !== undefined) values.set(`${group}.${field}`, String(source[field]));
+    }
+  }
+  for (const [key, value] of Object.entries(extra)) values.set(key, value);
+  return values;
+}
+
 function requestShapeError(request: ManagedPreparationRequest): string | null {
   if (!record(request)) return "request";
   if (!text(request.originalRequest)) return "originalRequest";
@@ -156,9 +198,9 @@ function requestShapeError(request: ManagedPreparationRequest): string | null {
   if (typeof request.descriptorFingerprint !== "string" || !SHA256.test(request.descriptorFingerprint)) return "descriptorFingerprint";
   if (!text(request.policy)) return "policy";
   if (!text(request.acceptance)) return "acceptance";
-  if (!record(request.templateContext)) return "templateContext";
+  if (!templateContextValid(request.templateContext)) return "templateContext";
   if (!Array.isArray(request.declaredVariables) || !request.declaredVariables.every(variable =>
-    record(variable) && text(variable.name) && typeof variable.required === "boolean"
+    record(variable) && typeof variable.name === "string" && VARIABLE_NAME.test(variable.name) && typeof variable.required === "boolean"
     && (variable.defaultValue === undefined || typeof variable.defaultValue === "string"))) return "declaredVariables";
   if (!Array.isArray(request.context) || !request.context.every(item =>
     record(item) && text(item.ref) && !/[\r\n]/.test(item.ref as string) && typeof item.text === "string")) return "context";
@@ -206,19 +248,34 @@ function schemaSubsetViolation(node: unknown, pointer: string, depth: number, se
   return "items" in node ? schemaSubsetViolation(node.items, `${pointer}/items`, depth + 1, seen) : `${pointer}/items`;
 }
 
-/** The resolved layers, or the reason a variable is unresolved. A placeholder left after resolution refuses. */
+/**
+ * The resolved layers, or the reason a variable is unresolved. Every placeholder form the resolver accepts, dotted
+ * names included, must be declared and must have an own value before resolution; a placeholder left after
+ * resolution refuses as well.
+ */
 function resolveLayers(request: ManagedPreparationRequest): { resolved: string[] } | { unresolved: string } {
   const declared = [...request.declaredVariables];
+  const declaredNames = new Set(declared.map(variable => variable.name));
   const extra: Record<string, string> = { ...(request.templateContext.extra ?? {}) };
+  const values = templateValues(request.templateContext, extra);
   for (const variable of declared) {
-    if (variable.name in extra) continue;
-    if (variable.defaultValue !== undefined) extra[variable.name] = variable.defaultValue;
-    else if (variable.required) return { unresolved: `${variable.name}: required variable has no value` };
+    if (values.has(variable.name)) continue;
+    if (variable.defaultValue !== undefined) {
+      extra[variable.name] = variable.defaultValue;
+      values.set(variable.name, variable.defaultValue);
+    } else if (variable.required) return { unresolved: `${variable.name}: required variable has no value` };
   }
   const resolved: string[] = [];
   for (const layer of request.layers) {
-    const undeclared = validateTemplate(layer.content, declared).undeclaredVariables;
+    const used = [...layer.content.matchAll(/\{\{([^}]+)\}\}/g)].map(match => (match[1] ?? "").trim());
+    // `validateTemplate` sees only one-word names; the other forms are checked against the same declarations.
+    const undeclared = [...new Set([
+      ...validateTemplate(layer.content, declared).undeclaredVariables,
+      ...used.filter(name => !/^\w+$/.test(name) && !declaredNames.has(name)),
+    ])];
     if (undeclared.length > 0) return { unresolved: `${layer.ref}: ${undeclared.join(", ")} not declared` };
+    const missing = used.find(name => !values.has(name));
+    if (missing !== undefined) return { unresolved: `${layer.ref}: {{${missing}}}` };
     const content = resolvePersonaTemplate(layer.content, { ...request.templateContext, extra });
     const left = PLACEHOLDER.exec(content);
     if (left) return { unresolved: `${layer.ref}: ${left[0]}` };
