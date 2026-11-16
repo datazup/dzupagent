@@ -266,32 +266,35 @@ export function classifyCodexFinalTurn(
   const message = events[messageIndex];
   const messageText = message?.type === "adapter:message" ? message.content : null;
 
-  if (native) {
-    // 5. The native result is the only candidate, whatever any message says.
-    const parsed = parseObject(native);
-    if (!parsed) return failed("result_invalid", rawTerminalIndex);
-    if (messageText !== null && messageText !== native) return failed("result_conflict", rawTerminalIndex);
-    return completed(parsed, "native", rawTerminalIndex);
-  }
-  if (messageText === null) return failed("result_missing", null);
-
-  // The message counts only with its own raw record directly before it ...
+  // The last assistant message is the final message only with its own raw record directly before it ...
   const itemRecord = messageIndex - 1 >= turnStart ? rawPayload(events[messageIndex - 1]) : null;
   const item = itemRecord?.["type"] === "item.completed" && record(itemRecord["item"]) ? itemRecord["item"] : null;
-  let attributed = item !== null && item["type"] === "agent_message"
+  let attributed = messageText !== null && item !== null && item["type"] === "agent_message"
     && (getString(item, "text", "content") ?? "") === messageText
     && !commentary(itemRecord) && !commentary(item);
-  // ... with nothing after it but the raw terminal record. Every other raw record inside a turn is an item record.
+  // ... with no raw item record, tool call, tool result or message after it. A raw record of the thread or the turn
+  // (a type without the `item.` prefix) is not an item record.
   for (let index = messageIndex + 1; attributed && index < terminalIndex; index += 1) {
     const event = events[index];
     if (event?.type === "adapter:tool_call" || event?.type === "adapter:tool_result" || event?.type === "adapter:message") attributed = false;
-    if (event?.type === "adapter:provider_raw" && !(index === rawTerminalIndex && terminalRecord !== null)) attributed = false;
+    const rawType = rawPayload(event)?.["type"];
+    if (typeof rawType === "string" && rawType.startsWith("item.")) attributed = false;
   }
   // ... and with no stream delta of the turn marked as commentary.
   for (let index = turnStart; attributed && index < terminalIndex; index += 1) {
     const event = events[index];
     if (event?.type === "adapter:stream_delta" && commentary(event)) attributed = false;
   }
+
+  if (native) {
+    // 5. The native result is the only candidate, whatever any message says. Only a final message can conflict
+    // with it; commentary and other unattributed messages cannot.
+    const parsed = parseObject(native);
+    if (!parsed) return failed("result_invalid", rawTerminalIndex);
+    if (attributed && messageText !== native) return failed("result_conflict", rawTerminalIndex);
+    return completed(parsed, "native", rawTerminalIndex);
+  }
+  if (messageText === null) return failed("result_missing", null);
   if (!attributed) return failed("result_unattributed", messageIndex);
 
   // 5. Structured result.

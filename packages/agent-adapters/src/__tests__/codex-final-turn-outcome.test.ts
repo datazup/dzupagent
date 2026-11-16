@@ -249,9 +249,13 @@ describe('classifyCodexFinalTurn', () => {
       expect([event.type, ...verdict(expecting([...base.slice(0, at + 2), event, ...base.slice(at + 2)]))])
         .toEqual([event.type, 'failed', 'result_unattributed'])
     }
-    // Any raw record after the message, other than the terminal record, takes the attribution away.
+    // A raw item record after the message takes the attribution away; a raw record of the thread does not.
     const reasoning = wrapRawEvent({ type: 'item.completed', item: { id: 'item-9', type: 'reasoning', text: 'thinking' } }, SESSION, INPUT, 99)
     expect(verdict(expecting([...base.slice(0, at + 2), reasoning, ...base.slice(at + 2)]))).toEqual(['failed', 'result_unattributed'])
+    const repeated = stream('threadRecordAfterMessage')
+    expect(repeated.filter(event => event.type === 'adapter:started')).toHaveLength(1)
+    expect(repeated.at(-3)).toMatchObject({ type: 'adapter:provider_raw', rawEvent: { payload: { type: 'thread.started' } } })
+    expect(outcome(expecting(repeated))).toMatchObject({ outcome: 'completed', result: OBJECT, resultSource: 'final_message' })
   })
 
   it('lets the native terminal result win and never trusts the adapter fallback', () => {
@@ -262,6 +266,10 @@ describe('classifyCodexFinalTurn', () => {
     })
     expect(verdict(expecting(stream('nativeNextToSameMessage')))).toEqual(['completed', 'native'])
     expect(verdict(expecting(stream('nativeNextToDifferentMessage')))).toEqual(['failed', 'result_conflict'])
+    // Only a final message conflicts. Commentary, or a message followed by a tool call, leaves the native result.
+    for (const name of ['nativeNextToCommentary', 'nativeAfterMessageAndToolCall']) {
+      expect([name, outcome(expecting(stream(name)))]).toMatchObject([name, { outcome: 'completed', result: OBJECT, resultSource: 'native' }])
+    }
 
     // The second turn has no message. The adapter fills its completed result from the first turn; that is not used.
     const second = stream('secondTurnWithoutMessage')
