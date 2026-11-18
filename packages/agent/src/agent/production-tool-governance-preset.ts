@@ -3,6 +3,7 @@ import { createEventBus, type DzupEventBus } from '@dzupagent/core/events'
 import { createSafetyMonitor, type SafetyMonitor } from '@dzupagent/core/security'
 import { ToolGovernance, type ToolGovernanceConfig } from '@dzupagent/core/tools'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
+import type { PromptInjectionMode } from '@dzupagent/security'
 import type {
   ArgumentValidator,
   DzupAgentConfig,
@@ -10,6 +11,7 @@ import type {
   ToolExecutionConfig,
   ToolTracer,
 } from './agent-types.js'
+import type { SecurityConfig } from './agent-types-security.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface ProductionToolPermissionOptions {
@@ -52,6 +54,15 @@ export interface ProductionToolGovernancePresetOptions extends ProductionToolPer
   /** Set false only when upstream scanning already occurred. Defaults to true. */
   scanToolResults?: boolean
   /**
+   * Prompt-injection handling for tool results, which reach the model
+   * unmodified and so are attacker-influenced input. Defaults to `'block'`: a
+   * flagged result halts the turn. Use `'warn'` to rewrite flagged spans
+   * instead, or `'off'` only when a stronger control already covers it.
+   * This is the production preset's default only; the engine default for an
+   * agent that does not use the preset is unchanged (no scan).
+   */
+  promptInjectionToolResults?: PromptInjectionMode
+  /**
    * Governed PTC (Process-Tool-Call) tools to inject into the tool loop.
    *
    * Pass `[createPtcTool({ governance, eventBus, runId })]` from
@@ -77,6 +88,13 @@ export interface ProductionToolGovernancePreset {
   permissionPolicy: ToolPermissionPolicy
   toolExecution: ToolExecutionConfig
   /**
+   * The `security` section the preset owns: tool-result prompt-injection
+   * handling. Apply it to the agent config next to `toolExecution`
+   * (`withProductionToolGovernancePreset` does this and keeps the config's own
+   * other `security` fields).
+   */
+  security: SecurityConfig
+  /**
    * Governed PTC tools resolved from `ptcTools` option.
    * Append these to the `tools` array passed to `runToolLoop` or the agent
    * config to make PTC available in the tool loop:
@@ -97,6 +115,7 @@ export interface ProductionToolGovernancePreset {
  * - permission policy, default-deny when no allowlist/custom policy exists
  * - built-in safety monitor with fail-closed scanner behavior
  * - per-tool timeouts and argument validation
+ * - prompt-injection scanning of tool results, blocking by default
  * - optional tracer propagation
  */
 export function createProductionToolGovernancePreset(
@@ -128,6 +147,9 @@ export function createProductionToolGovernancePreset(
     governance,
     permissionPolicy,
     toolExecution,
+    security: {
+      promptInjectionToolResults: options.promptInjectionToolResults ?? 'block',
+    },
     ptcTools: options.ptcTools ?? [],
   }
 }
@@ -135,6 +157,11 @@ export function createProductionToolGovernancePreset(
 /**
  * Convenience helper for consumers that want to apply the production preset
  * directly to a DzupAgentConfig object.
+ *
+ * The config's own `security` fields are kept. For tool-result prompt-injection
+ * handling the order of precedence is the explicit `promptInjectionToolResults`
+ * option, then a value the config already sets, then the preset default
+ * (`'block'`).
  */
 export function withProductionToolGovernancePreset<T extends DzupAgentConfig>(
   config: T,
@@ -142,18 +169,21 @@ export function withProductionToolGovernancePreset<T extends DzupAgentConfig>(
     agentId?: string
     tools?: readonly StructuredToolInterface[]
   },
-): T & { eventBus: DzupEventBus; toolExecution: ToolExecutionConfig } {
+): T & { eventBus: DzupEventBus; toolExecution: ToolExecutionConfig; security: SecurityConfig } {
   const preset = createProductionToolGovernancePreset(omitUndefined({
     ...options,
     agentId: options.agentId ?? config.id,
     tools: options.tools ?? config.tools,
     eventBus: options.eventBus ?? config.eventBus,
+    promptInjectionToolResults:
+      options.promptInjectionToolResults ?? config.security?.promptInjectionToolResults,
   }))
 
   return {
     ...config,
     eventBus: preset.eventBus,
     toolExecution: preset.toolExecution,
+    security: { ...config.security, ...preset.security },
   }
 }
 
